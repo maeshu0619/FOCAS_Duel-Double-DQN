@@ -1,145 +1,119 @@
-import pygame
 import numpy as np
+import math
+import os
+import datetime
 from gym import Env
 from gym.spaces import Box, Discrete
+from environment.merton import MertonBandwidthSimulator
 
+DEFAULT_BITRATE_INDEX = 0
+a = 1.0
+b = 4.3
+c = 1.0
 
-class MazeGame(Env):
-    """
-    A simple maze environment using Pygame for visualization.
+class AFOCASDQN(Env):
+    def __init__(self, mu, sigma, a, b, lamda, base_bw, 
+                 VIDEO_BIT_RATE, episode_length):
+        self.simulator = MertonBandwidthSimulator(episode_length, mu, sigma, a, b, lamda, base_bw)
+        self.episode_length = episode_length
+        self.bandwidth_series = self.simulator.series_bw
+        self.current_frame = 0
+        self.current_quality = DEFAULT_BITRATE_INDEX
+        self.buffer_size = 0.0  # 秒
+        self.VIDEO_BIT_RATE = VIDEO_BIT_RATE
+        self.last_quality = DEFAULT_BITRATE_INDEX
 
-    Args:
-        maze (list): A list of lists representing the maze layout.
-            - "S": Start position
-            - "G": Goal position
-            - Others: Walls
-    """
+        self.action_space = Discrete(3)
+        self.observation_space = Box(low=0, high=1, shape=(3,), dtype=np.float32)
 
-    def __init__(self, maze: list[list]) -> None:
-        super(MazeGame, self).__init__()
+    def _calculate_playing_reward(self, bit_rate):
+        """再生報酬の計算"""
+        return math.log(bit_rate)
 
-        self.maze = np.array(maze)
+    def _calculate_rebuffering_penalty(self, chunk_size, bandwidth):
+        """リバッファリングペナルティの計算"""
+        rebuffer_time = max((chunk_size / bandwidth) - self.buffer_size, 0)
+        self.buffer_size = max(self.buffer_size - rebuffer_time + 4, 0)  # バッファ更新
+        return -rebuffer_time
 
-        self.start_position = np.array(np.where(self.maze == "S")).flatten()
+    def _calculate_smoothness_penalty(self, current_quality, last_quality):
+        """スムーズネスペナルティの計算"""
+        return -abs(self.VIDEO_BIT_RATE[current_quality] - self.VIDEO_BIT_RATE[last_quality])
 
-        self.end_position = np.array(np.where(self.maze == "G")).flatten()
-
-        self.current_position = self.start_position.copy()
-
-        self.rows, self.cols = self.maze.shape
-
-        self.action_space = Discrete(4)
-
-        self.observation_space = Box(
-            low=0, high=max(self.rows, self.cols), shape=(2,), dtype=np.float32
-        )
-
-        self.cell = 100
-
-        pygame.init()
-
-        self.screen = pygame.display.set_mode(
-            (self.rows * self.cell, self.cols * self.cell)
-        )
-
-    def _is_valid_position(self, new_position: np.ndarray) -> bool:
+    def _log_transmission_rate(self, bandwidth, bitrate):
         """
-        Checks if a new position is within the maze boundaries.
+        伝送レートとビットレートをログファイルに記録する。
 
         Args:
-            new_position (np.ndarray): The new position to check.
-
-        Returns:
-            bool: True if the position is valid, False otherwise.
+            bandwidth (float): 現在の伝送レート (bps)。
+            bitrate (float): 現在選択されたビットレート (bps)。
         """
+        # デバッグの瞬間の日時をファイル名に反映
+        log_dir = "logs"
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join(log_dir, f"transmission_log_{timestamp}.txt")
 
-        row, col = new_position
+        with open(log_file, "a") as f:
+            f.write(f"Frame: {self.current_frame}, Bandwidth: {bandwidth:.2f} bps, Bitrate: {bitrate} bps\n")
 
-        if row < 0 or row >= self.rows or col < 0 or col >= self.cols:
-            return False
+    def step(self, action):
+        if self.current_frame >= len(self.bandwidth_series):
+            raise IndexError(f"Current frame index {self.current_frame} exceeds bandwidth series length {len(self.bandwidth_series)}")
 
-        return True
+        # アクションによるビットレートの変更
+        if action == 0 and self.current_quality > 0:
+            self.current_quality -= 1
+        elif action == 2 and self.current_quality < len(self.VIDEO_BIT_RATE) - 1:
+            self.current_quality += 1
 
-    def step(self, action: int) -> tuple[np.ndarray, float, bool, dict]:
+        # 現在の帯域幅と選択されたビットレート
+        current_bandwidth = self.bandwidth_series[self.current_frame]
+        selected_bitrate = self.VIDEO_BIT_RATE[self.current_quality]
+        chunk_size = selected_bitrate * 4 / 8  # チャンクサイズ (Bytes)
+
+        # 各報酬要素を計算
+        playing_reward = self._calculate_playing_reward(selected_bitrate)
+        rebuffering_penalty = self._calculate_rebuffering_penalty(chunk_size, current_bandwidth)
+        smoothness_penalty = self._calculate_smoothness_penalty(self.current_quality, self.last_quality)
+
+        # 総合報酬
+        reward = (a * playing_reward +
+                  b * rebuffering_penalty +
+                  c * smoothness_penalty)
+        
+        # ログ記録
+        self._log_transmission_rate(current_bandwidth, selected_bitrate)
+
+        self.last_quality = self.current_quality  # 前回のビットレートを更新
+
+        done = self.current_frame + 1 >= self.episode_length
+        if not done:
+            self.current_frame += 1
+
+        return self._get_obs(), reward, done, {}
+
+    def reset(self):
+        self.current_frame = 0
+        self.current_quality = DEFAULT_BITRATE_INDEX
+        self.last_quality = DEFAULT_BITRATE_INDEX
+        self.buffer_size = 0.0
+        self.bandwidth_series = self.simulator._generate_series(self.episode_length)
+
+        return self._get_obs()
+
+    def _get_obs(self):
         """
-        Performs a step in the environment based on the provided action.
-
-        Args:
-            action (int): The action to take (0: Up, 1: Down, 2: Left, 3: Right).
-
-        Returns:
-            tuple: A tuple containing the new observation, reward, done flag,
-                and additional information (empty dict in this case).
+        現在の観測値を返す
         """
-
-        new_position = self.current_position.copy()
-
-        if action == 0:
-            new_position[0] -= 1
-        elif action == 1:
-            new_position[0] += 1
-        elif action == 2:
-            new_position[1] -= 1
-        elif action == 3:
-            new_position[1] += 1
-
-        if self._is_valid_position(new_position):
-            self.current_position = new_position
-
-        if np.array_equal(self.current_position, self.end_position):
-            reward = 1
-            done = True
-
-        else:
-            reward = 0
-            done = False
-
-        return self.current_position.astype(np.float32), reward, done, {}
-
-    def reset(self) -> np.ndarray:
-        """
-        Resets the environment to the starting position.
-
-        Returns:
-            np.ndarray: The initial observation (position).
-        """
-
-        self.current_position = self.start_position.copy()
-        return self.current_position.astype(np.float32)
-
-    def render(self) -> None:
-        """
-        Renders the current state of the maze environment.
-        """
-
-        self.screen.fill((0, 0, 0))
-
-        for row in range(self.rows):
-            for col in range(self.cols):
-                cell_left = col * self.cell
-                cell_top = row * self.cell
-
-                if self.maze[row, col] == "S":
-                    color = (92, 184, 92)
-                elif self.maze[row, col] == "G":
-                    color = (66, 139, 202)
-                else:
-                    color = (250, 250, 250)
-
-                pygame.draw.rect(
-                    self.screen, color, (cell_left, cell_top, self.cell, self.cell)
-                )
-                pygame.draw.rect(
-                    self.screen,
-                    (70, 73, 80),
-                    (cell_left, cell_top, self.cell, self.cell),
-                    1,
-                )
-
-        agent_left = int(self.current_position[1] * self.cell + self.cell // 2)
-        agent_top = int(self.current_position[0] * self.cell + self.cell // 2)
-        pygame.draw.circle(
-            self.screen, (217, 83, 79), (agent_left, agent_top), self.cell // 3
-        )
-
-        pygame.display.update()
+        if self.current_frame >= len(self.bandwidth_series):
+            print(f"[ERROR] Current frame {self.current_frame} exceeds bandwidth series length {len(self.bandwidth_series)}")
+            return np.array([0, 0, 0])  # エラー時はデフォルト値を返す
+        
+        return np.array([
+            self.bandwidth_series[self.current_frame] / 1e6,  # 帯域幅をMbpsに正規化
+            self.buffer_size / 10,  # バッファサイズを正規化
+            self.current_quality / len(self.VIDEO_BIT_RATE)  # ビットレートインデックスを正規化
+        ])
