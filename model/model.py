@@ -1,6 +1,7 @@
+import numpy as np
 from stable_baselines3 import DQN
 from stable_baselines3.common.evaluation import evaluate_policy
-import numpy as np
+
 
 class DqnAgent:
     """
