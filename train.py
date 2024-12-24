@@ -1,85 +1,57 @@
-from model.model import DQNAgent
-from environment.environment import FoveatedSRRenderingEnv
+from environment.environment import AFOCASDQN
+from model.model import DqnAgent
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from tqdm import tqdm
 import os
-import warnings
 
-# Configuration
-resolution_time = {
-    'fovea': 2.0,
-    'blend': 1.0,
-    'peripheral': 0.5
-}
+def train():
+    mu = 0.5
+    sigma = 0.1
+    a = 0.02
+    b = 0.01
+    lamda = 0.5
+    base_bw = 1e6  # 基本帯域幅（Mbps）
+    episode_length = 100  # フレーム数
+    VIDEO_BIT_RATE = [300, 750, 1200, 1850, 2850, 4300]  # Kbps
 
-latency_constraints = {
-    'high': 50,
-    'medium': 20,
-    'low': 10
-}
+    # 環境の初期化
+    env = AFOCASDQN(mu, sigma, a, b, lamda, base_bw, VIDEO_BIT_RATE, episode_length)
+    agent = DqnAgent(env)
 
-transmission_environments = {
-    'poor': 20,
-    'average': 50,
-    'good': 80
-}
-
-def train(latency, transmission):
-    # Initialize environment and agent
-    env = FoveatedSRRenderingEnv(
-        transmission_rate=transmission_environments[transmission],
-        latency_constraint=latency_constraints[latency],
-        resolution_time=resolution_time
-    )
-    agent = DQNAgent(env)
-
-    # TensorBoard setup
-    timenow = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_dir = os.path.join("runs", f"train_{timenow}")
+    log_dir = os.path.join("runs", f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     writer = SummaryWriter(log_dir=log_dir)
-    print(f"TensorBoard logs will be saved to {log_dir}")
 
-    # Training setup
-    print(f"Training with latency: {latency}, transmission: {transmission}")
-    total_timesteps = 20000
-    eval_interval = 1000  # Record data every 1000 steps
+    total_timesteps = 50000
+    pbar = tqdm(total=total_timesteps, desc="Training Progress")
+    episode_rewards = []
 
-    # Single tqdm progress bar
-    pbar = tqdm(total=total_timesteps, desc="Training Progress", leave=False)
+    obs = env.reset()
+    episode_reward = 0
 
-    for step in range(1, total_timesteps + 1):
-        agent.model.learn(total_timesteps=1, reset_num_timesteps=False)
+    for step in range(total_timesteps):
+        # エージェントがアクションを予測
+        action = agent.predict(obs)
+        obs, reward, done, _ = env.step(action)
+        episode_reward += reward
 
-        # Log metrics to TensorBoard and tqdm
-        if step % eval_interval == 0:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # Suppress warnings temporarily
-                ep_reward = agent.evaluate(env, n_eval_episodes=3)[0]
-            
-            exploration_rate = agent.model.exploration_rate
+        if done:
+            # エピソード終了時に報酬を記録
+            episode_rewards.append(episode_reward)
+            writer.add_scalar("Episode Reward", episode_reward, len(episode_rewards))
+            obs = env.reset()
+            episode_reward = 0
 
-            # Write to TensorBoard
-            writer.add_scalar('Reward/Episode', ep_reward, step)
-            writer.add_scalar('Exploration/Rate', exploration_rate, step)
+        # トレーニングステップごとの記録
+        writer.add_scalar("Training Steps", step, step)
 
-            # Update tqdm bar with metrics
-            pbar.set_postfix({
-                "Reward": ep_reward,
-                "Exploration Rate": exploration_rate
-            })
-
+        # プログレスバーの更新
         pbar.update(1)
 
-    # Finalize training
     pbar.close()
-    agent.save("dqn_foveated_model")
     writer.close()
-    print("Training complete. Model saved and logs written.")
+    agent.save("dqn_adaptive_focas_model")
+    print("Training completed and model saved!")
 
 if __name__ == "__main__":
-    # Parameters
-    selected_latency = 'medium'
-    selected_transmission = 'average'
-
-    train(selected_latency, selected_transmission)
+    train()
