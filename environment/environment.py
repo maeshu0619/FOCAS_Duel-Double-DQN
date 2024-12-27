@@ -1,119 +1,203 @@
 import numpy as np
-import math
-import os
-import datetime
 from gym import Env
-from gym.spaces import Box, Discrete
-from environment.merton import MertonBandwidthSimulator
+from gym.spaces import Discrete, Box
+from tqdm import tqdm
+from system.calculater import compute_average, qoe_cal
+from system.setup import file_setup
 
-DEFAULT_BITRATE_INDEX = 0
-a = 1.0
-b = 4.3
-c = 1.0
+class VideoStreamingEnv(Env):
+    def __init__(self, video_length: int, segment_duration: int, video_fps: int):
+        super(VideoStreamingEnv, self).__init__()
+        self.video_length = video_length
+        self.segment_duration = segment_duration
+        self.num_segments = video_length // segment_duration
+        self.video_fps = video_fps
 
-class AFOCASDQN(Env):
-    def __init__(self, mu, sigma, a, b, lamda, base_bw, 
-                 VIDEO_BIT_RATE, episode_length):
-        self.simulator = MertonBandwidthSimulator(episode_length, mu, sigma, a, b, lamda, base_bw)
-        self.episode_length = episode_length
-        self.bandwidth_series = self.simulator.series_bw
-        self.current_frame = 0
-        self.current_quality = DEFAULT_BITRATE_INDEX
-        self.buffer_size = 0.0  # 秒
-        self.VIDEO_BIT_RATE = VIDEO_BIT_RATE
-        self.last_quality = DEFAULT_BITRATE_INDEX
+        self.bit_rates = [300, 750, 1200, 1850, 2850, 4300]  # kbps
+        self.current_segment = 0
 
+        # セグメントの長さ毎に更新
+        self.bitrate_legacy = []
+        self.segment_data = self.segment_duration * self.bit_rates[self.current_segment]
+        self.segmnet_cnt = 0 # セグメント選択(ビットレート選択、4ステップごとに記録)
+        self.R_t = [] # 今までシミュレートした伝送レート履歴
+        self.R_t_box = [] # 今までシミュレートした平均伝送レートの履歴
+        self.T_send = []
+        self.video_st = True
+
+        self.rate_loss_penalty = 0 # 選択された解像度が平均伝送レートを下回らなかった場合のペナルティ
+
+        # 正規分布を用いた伝送レートのシミュレーション
+        self.mean_bandwidth = 3000  # 平均帯域幅（kbps）
+        self.std_bandwidth = 1000  # 帯域幅の標準偏差（kbps）
+
+        # 状態空間: [現在の帯域幅, 前回選択したビットレート]
+        self.observation_space = Box(
+            low=0,
+            high=np.inf,
+            shape=(2,),
+            dtype=np.float32
+        )
+
+        # 行動空間: 解像度を「上げる」「そのまま」「下げる」の3択
         self.action_space = Discrete(3)
-        self.observation_space = Box(low=0, high=1, shape=(3,), dtype=np.float32)
 
-    def _calculate_playing_reward(self, bit_rate):
-        """再生報酬の計算"""
-        return math.log(bit_rate)
+        # ログファイルのセットアップ
+        self.log_file, self.logger = file_setup()
 
-    def _calculate_rebuffering_penalty(self, chunk_size, bandwidth):
-        """リバッファリングペナルティの計算"""
-        rebuffer_time = max((chunk_size / bandwidth) - self.buffer_size, 0)
-        self.buffer_size = max(self.buffer_size - rebuffer_time + 4, 0)  # バッファ更新
-        return -rebuffer_time
+        # プログレスバーのセットアップ
+        self.total_timesteps = None
+        self.progress_bar = None
 
-    def _calculate_smoothness_penalty(self, current_quality, last_quality):
-        """スムーズネスペナルティの計算"""
-        return -abs(self.VIDEO_BIT_RATE[current_quality] - self.VIDEO_BIT_RATE[last_quality])
+        self.time_in_video = 0 # 100ステップごとに初期化
+        self.time_in_segment = 0 # 4ステップごとに初期化
 
-    def _log_transmission_rate(self, bandwidth, bitrate):
-        """
-        伝送レートとビットレートをログファイルに記録する。
-
-        Args:
-            bandwidth (float): 現在の伝送レート (bps)。
-            bitrate (float): 現在選択されたビットレート (bps)。
-        """
-        # デバッグの瞬間の日時をファイル名に反映
-        log_dir = "logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = os.path.join(log_dir, f"transmission_log_{timestamp}.txt")
-
-        with open(log_file, "a") as f:
-            f.write(f"Frame: {self.current_frame}, Bandwidth: {bandwidth:.2f} bps, Bitrate: {bitrate} bps\n")
-
-    def step(self, action):
-        if self.current_frame >= len(self.bandwidth_series):
-            raise IndexError(f"Current frame index {self.current_frame} exceeds bandwidth series length {len(self.bandwidth_series)}")
-
-        # アクションによるビットレートの変更
-        if action == 0 and self.current_quality > 0:
-            self.current_quality -= 1
-        elif action == 2 and self.current_quality < len(self.VIDEO_BIT_RATE) - 1:
-            self.current_quality += 1
-
-        # 現在の帯域幅と選択されたビットレート
-        current_bandwidth = self.bandwidth_series[self.current_frame]
-        selected_bitrate = self.VIDEO_BIT_RATE[self.current_quality]
-        chunk_size = selected_bitrate * 4 / 8  # チャンクサイズ (Bytes)
-
-        # 各報酬要素を計算
-        playing_reward = self._calculate_playing_reward(selected_bitrate)
-        rebuffering_penalty = self._calculate_rebuffering_penalty(chunk_size, current_bandwidth)
-        smoothness_penalty = self._calculate_smoothness_penalty(self.current_quality, self.last_quality)
-
-        # 総合報酬
-        reward = (a * playing_reward +
-                  b * rebuffering_penalty +
-                  c * smoothness_penalty)
-        
-        # ログ記録
-        self._log_transmission_rate(current_bandwidth, selected_bitrate)
-
-        self.last_quality = self.current_quality  # 前回のビットレートを更新
-
-        done = self.current_frame + 1 >= self.episode_length
-        if not done:
-            self.current_frame += 1
-
-        return self._get_obs(), reward, done, {}
+        self.time_in_training = 0 # 初期化しない
 
     def reset(self):
-        self.current_frame = 0
-        self.current_quality = DEFAULT_BITRATE_INDEX
-        self.last_quality = DEFAULT_BITRATE_INDEX
-        self.buffer_size = 0.0
-        self.bandwidth_series = self.simulator._generate_series(self.episode_length)
-
-        return self._get_obs()
-
-    def _get_obs(self):
         """
-        現在の観測値を返す
+        環境のリセット
+        Returns:
+            np.ndarray: 初期状態
         """
-        if self.current_frame >= len(self.bandwidth_series):
-            print(f"[ERROR] Current frame {self.current_frame} exceeds bandwidth series length {len(self.bandwidth_series)}")
-            return np.array([0, 0, 0])  # エラー時はデフォルト値を返す
+        self.current_segment = 0
+        bandwidth = np.random.normal(self.mean_bandwidth, self.std_bandwidth)
+        reward = 0  # reward の初期値を設定
+        if self.time_in_training != 100:
+            self.time_in_segment = 0
+        if self.time_in_segment == 0:
+            self.last_bit_rate_index = 0  # 初期ビットレートのインデックス
+
+        #self.log_file.write("Timestep,Bandwidth,Selected Bitrate\n")  # ログヘッダー
+        if self.progress_bar:
+            self.progress_bar.n = 0
+            self.progress_bar.last_print_n = 0
+            self.progress_bar.refresh()
+        return np.array([bandwidth, self.bit_rates[self.last_bit_rate_index]], dtype=np.float32)
+
+    def step(self, action):
+        # 帯域幅の変化をシミュレーション
+        bandwidth = np.random.normal(self.mean_bandwidth, self.std_bandwidth)
+        reward = 0  # reward の初期値を設定
         
-        return np.array([
-            self.bandwidth_series[self.current_frame] / 1e6,  # 帯域幅をMbpsに正規化
-            self.buffer_size / 10,  # バッファサイズを正規化
-            self.current_quality / len(self.VIDEO_BIT_RATE)  # ビットレートインデックスを正規化
-        ])
+        # セグメント送信期間中の平均伝送レートは、そのセグメントが送信される時間無いの伝送レートを用いて計算される
+        self.R_t.append(bandwidth)
+        
+        if self.time_in_segment == 0:
+            if self.video_st == True:
+                self.bitrate_legacy.append(self.bit_rates[self.current_segment])
+                self.log_file.write(f"T_send:0, segment_data:{self.bit_rates[0]*self.segment_duration}, R_t:0\n")
+                pass
+            else:
+                # 積分によって平均伝送レートを計算する
+                R_t_ave = compute_average(self.R_t, self.time_in_training, self.segment_duration)
+                selected_index = -1  # 初期値として不適切な値を設定
+                for index, bit_rate in enumerate(self.bit_rates):
+                    if R_t_ave >= bit_rate:
+                        selected_index = index  # 条件を満たしたインデックスを保存
+                        break
+                    else:
+                        continue
+
+                # 選択可能なインデックスは `selected_index` 以下に制限
+                if selected_index != -1:  # 有効なインデックスが選ばれた場合
+                    max_index = selected_index  # インデックスの上限を設定
+
+                    # `last_bit_rate_index` の選択ロジック
+                    if action == 0:  # 解像度を下げる
+                        self.last_bit_rate_index = max(0, self.last_bit_rate_index - 1)
+                        if self.last_bit_rate_index > max_index:
+                            self.rate_loss_penalty = 1 # 選択された解像度が平均伝送レートを下回らなかった場合のペナルティ（仮）
+                    elif action == 2:  # 解像度を上げる
+                        self.last_bit_rate_index = min(max_index, self.last_bit_rate_index + 1)  # 最大値は選択可能インデックス以下
+                    else:
+                        pass
+                else:
+                    self.log_file.write(f"No valid bit_rate index found.\n")
+
+                self.R_t_box.append(R_t_ave)
+                R_t_ave = 0
+                          
+            self.bitrate_legacy.append(self.bit_rates[self.last_bit_rate_index])
+
+            # 選択されたビットレートにおけるセグメントデータ量の計算
+            self.segment_data = self.segment_duration * self.bitrate_legacy[self.segmnet_cnt]
+
+            # セグメントの送信に必要な時間＝セグメントのデータ量/セグメント送信期間中の平均伝送レート
+            self.T_send.append(self.segment_data / self.R_t[self.time_in_training])
+            
+            # QoE計算
+            reward = qoe_cal(self.time_in_training, self.segmnet_cnt, self.bitrate_legacy, self.bit_rates[self.last_bit_rate_index], self.rate_loss_penalty)
+
+            if self.video_st == True:
+                self.log_file.write(f"segmnet_cnt: {self.segmnet_cnt}, T_send:{self.T_send[self.segmnet_cnt]}, segment_data:{self.segment_data}, reward: {reward}\n")
+            else:
+                #print(f'self.segmnet_cnt: {self.segmnet_cnt}, len R_t_box: {len(self.R_t_box)}, len T_send: {len(self.T_send)}, reward: {reward}')
+                self.log_file.write(f"segmnet_cnt: {self.segmnet_cnt}, T_send:{self.T_send[self.segmnet_cnt]}, segment_data:{self.segment_data}, R_t_ave:{self.R_t_box[self.segmnet_cnt-1]}, reward: {reward}\n")
+
+            #ペナルティの初期化
+            if self.rate_loss_penalty != 0:
+                self.rate_loss_penalty = 0
+
+        # ログに記録
+        if self.time_in_segment == 0:
+            self.log_file.write(f"frame:{self.time_in_video}, bandwidth:{bandwidth:.2f}, streamed rate:{self.bitrate_legacy[self.current_segment]}\n")
+        else:
+            self.log_file.write(f"frame:{self.time_in_video}, bandwidth:{bandwidth:.2f},\n")
+
+        # TensorBoard用のカスタム記録
+        if self.time_in_training % 4 == 0:
+            #print(f'self.segmnet_cnt: {self.segmnet_cnt}, len(self.bitrate_legacy): {len(self.bitrate_legacy)}')
+            self.logger.record("Reward/QoE", reward)
+            self.logger.record("Selected Bitrate", self.bitrate_legacy[self.segmnet_cnt])
+        self.logger.record("Bandwidth", bandwidth)
+        # 任意の横軸（例えば秒単位、またはセグメント単位）
+        self.logger.dump(self.time_in_training)
+
+        # プログレスバーの更新
+        if self.progress_bar:
+            self.progress_bar.update(1)
+
+
+        done = self.time_in_video >= 100  # 動画の長さを100ステップに設定
+        next_state = np.array([bandwidth, self.bitrate_legacy[self.current_segment]], dtype=np.float32)
+
+        # 状態の更新
+        self.time_in_training += 1
+        self.time_in_segment += 1
+        self.time_in_video += 1
+
+        if self.time_in_segment == self.segment_duration and self.video_st != True:
+            #print(f'time_in_segment: {self.time_in_segment}, time_in_video: {self.time_in_video}')
+            self.time_in_segment = 0
+            if self.time_in_video != self.video_length:
+                self.segmnet_cnt += 1
+                
+        if self.time_in_video == 100:
+            self.video_st = True
+            self.time_in_video = 0
+        elif self.time_in_video == 1:
+            self.video_st = False
+        else:
+            pass
+
+        return next_state, reward, done, {}
+
+    def set_total_timesteps(self, total_timesteps):
+        """
+        総ステップ数を設定し、プログレスバーを初期化する。
+        """
+        self.total_timesteps = total_timesteps
+        self.progress_bar = tqdm(total=total_timesteps, desc="Training Progress")
+
+    def render(self, mode='human'):
+        pass
+
+    def __del__(self):
+        """
+        環境が破棄されるときにロガーを終了し、ログファイルを閉じる。
+        """
+        if self.logger:
+            self.logger = None
+        if self.log_file:
+            self.log_file.close()
