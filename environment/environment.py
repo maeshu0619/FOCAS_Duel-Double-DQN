@@ -2,7 +2,7 @@ import numpy as np
 from gym import Env
 from gym.spaces import Discrete, Box
 from tqdm import tqdm
-from system.calculater import compute_average, qoe_cal
+from system.calculater import compute_average, qoe_cal, rate_cal
 from system.setup import file_setup
 
 class VideoStreamingEnv(Env):
@@ -61,7 +61,7 @@ class VideoStreamingEnv(Env):
             np.ndarray: 初期状態
         """
         self.current_segment = 0
-        bandwidth = np.random.normal(self.mean_bandwidth, self.std_bandwidth)
+        bandwidth = rate_cal(self.time_in_video)
         reward = 0  # reward の初期値を設定
         if self.time_in_training != 100:
             self.time_in_segment = 0
@@ -101,15 +101,17 @@ class VideoStreamingEnv(Env):
 
                 # 選択可能なインデックスは `selected_index` 以下に制限
                 if selected_index != -1:  # 有効なインデックスが選ばれた場合
-                    max_index = selected_index  # インデックスの上限を設定
+                    #max_index = selected_index  # インデックスの上限を設定
 
                     # `last_bit_rate_index` の選択ロジック
                     if action == 0:  # 解像度を下げる
                         self.last_bit_rate_index = max(0, self.last_bit_rate_index - 1)
+                        '''
                         if self.last_bit_rate_index > max_index:
                             self.rate_loss_penalty = 1 # 選択された解像度が平均伝送レートを下回らなかった場合のペナルティ（仮）
+                        '''
                     elif action == 2:  # 解像度を上げる
-                        self.last_bit_rate_index = min(max_index, self.last_bit_rate_index + 1)  # 最大値は選択可能インデックス以下
+                        self.last_bit_rate_index = min(len(self.bit_rates)-1, self.last_bit_rate_index + 1)  # 最大値は選択可能インデックス以下
                     else:
                         pass
                 else:
@@ -127,7 +129,7 @@ class VideoStreamingEnv(Env):
             self.T_send.append(self.segment_data / self.R_t[self.time_in_training])
             
             # QoE計算
-            reward = qoe_cal(self.time_in_training, self.segmnet_cnt, self.bitrate_legacy, self.bit_rates[self.last_bit_rate_index], self.rate_loss_penalty)
+            reward = qoe_cal(self.time_in_training, self.segmnet_cnt, self.bitrate_legacy, self.bit_rates[self.last_bit_rate_index], self.R_t)
 
             if self.video_st == True:
                 self.log_file.write(f"segmnet_cnt: {self.segmnet_cnt}, T_send:{self.T_send[self.segmnet_cnt]}, segment_data:{self.segment_data}, reward: {reward}\n")
