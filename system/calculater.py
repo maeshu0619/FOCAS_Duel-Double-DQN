@@ -31,24 +31,33 @@ def qoe_cal(time_in_training, segmnet_cnt, bitrate_legacy, bandwidth_legacy):
     alpha = 10
     beta = 2
     gamma = 2
+
+    now_rate = bitrate_legacy[segmnet_cnt]
+    pre_rate = bitrate_legacy[segmnet_cnt-1]
+
+    now_bandwidth = bandwidth_legacy[time_in_training]
     
     # 平均映像品質の計算
-    Q_vc = alpha * np.log(1 + bitrate_legacy[segmnet_cnt])
-    if bandwidth_legacy[time_in_training] < bitrate_legacy[segmnet_cnt]:
+    Q_vc = utility(now_rate)
+    if now_bandwidth < now_rate:
         Q_vc = 0
 
     # 時間ジッタの計算
     if time_in_training == 0:
         S_t = 0
     else:
-        S_t = beta * abs(bitrate_legacy[segmnet_cnt] - bitrate_legacy[segmnet_cnt-1])
+        S_t = abs(utility(now_rate) - utility(pre_rate))
 
     # 空間ジッタの計算
     # S_s = gammma * 
 
-    reward = Q_vc - S_t
-
+    reward = alpha * Q_vc - beta * S_t
+    #print(f'Q_vc: {Q_vc}, S_t: {S_t}、 reward: {reward}')
     return reward
+
+def utility(bitrate):
+    log = np.log(1 + bitrate)
+    return log
 
 c = 3.0 * 10**8 # 光速
 f = 2.4 * 10**9 # 周波数
