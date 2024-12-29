@@ -8,7 +8,7 @@ This repository provides a framework for creating custom environments using Open
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/A-A7med-i/Custom-Env.git
+   git clone https://github.com/maeshu0619/Adaptive_FOCAS_DQN.git
    ```
    
 2. **Install dependencies:**
