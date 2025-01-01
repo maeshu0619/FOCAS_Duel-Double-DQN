@@ -28,39 +28,53 @@ def compute_average(bandwidth_legacy, step, duration):
 
 
 #　QoEの計算関数
-def qoe_cal(mode, time_in_training, bitrate_legacy, resolution_legacy, 
-            bitrate_list, resolution_list, 
+def qoe_cal(mode, steps_per_episode, bitrate_legacy, resolution_legacy, 
+            bitrate_list, resolution_list, quality_vc_legacy, 
             bandwidth_legacy, resblock_info, gaze_coordinates, 
             size_legacy, depth_legacy, latency_constraint):
     alpha = 10
     beta = 2
     gamma = 2
 
-    if time_in_training > 0:
-        now_rate = bitrate_legacy[time_in_training]
-        pre_rate = bitrate_legacy[time_in_training-1]
+    if steps_per_episode > 0:
+        now_rate = bitrate_legacy[steps_per_episode]
+        pre_rate = bitrate_legacy[steps_per_episode-1]
     else:
-        now_rate = bitrate_legacy[time_in_training]
-    now_bandwidth = bandwidth_legacy[time_in_training]
+        now_rate = bitrate_legacy[steps_per_episode]
+    now_bandwidth = bandwidth_legacy[steps_per_episode]
 
     episode_fin = False
 
     if mode == 0: # ABR
-        Q_vc = utility(now_rate)
+        quality = utility(now_rate)
         if now_bandwidth < now_rate:
-            Q_vc = 0
+            '''
+            QoE-Driven Cache Management for HTTP Adaptive Bit Rate Streaming Over Wireless Networks
+            引用数164 出版年数2013
+            '''
+            quality -= 50
+
+        # 時間ジッタの計算
+        if steps_per_episode == 0:
+            jitter_t = 0
+        else:
+            jitter_t = abs(utility(now_rate) - utility(pre_rate))
+
+        # 空間ジッタの計算
+        jitter_s = 0 # 空間ジッタは0
+
     elif mode == 1: # FOCAS
         pass
     elif mode == 2: # Adaptive FOCAS
-        resolution = resolution_legacy[time_in_training]
+        resolution = resolution_legacy[steps_per_episode]
         resblock_time = resblock_info[0]
         resblock_quality = resblock_info[1]
-        gaze_xy  = gaze_coordinates[time_in_training]
-        size_fovea = size_legacy[time_in_training][0]
-        size_blend = size_legacy[time_in_training][1]
-        depth_fovea = depth_legacy[time_in_training][0]
-        depth_blend = depth_legacy[time_in_training][1]
-        depth_peri = depth_legacy[time_in_training][2]
+        gaze_xy  = gaze_coordinates[steps_per_episode]
+        size_fovea = size_legacy[steps_per_episode][0]
+        size_blend = size_legacy[steps_per_episode][1]
+        depth_fovea = depth_legacy[steps_per_episode][0]
+        depth_blend = depth_legacy[steps_per_episode][1]
+        depth_peri = depth_legacy[steps_per_episode][2]
 
         fovea_area = size_via_resolution(gaze_xy, resolution, size_fovea, depth_fovea, resblock_time)
         fovea_time = fovea_area * (depth_fovea - depth_blend) * resblock_time
@@ -68,9 +82,9 @@ def qoe_cal(mode, time_in_training, bitrate_legacy, resolution_legacy,
         blend_time = blend_area * (depth_blend - depth_peri) * resblock_time
         peri_time = resolution[0] * resolution[1] * depth_peri * resblock_time
         all_cal_time = fovea_time + blend_time + peri_time
+
         if all_cal_time > latency_constraint:
             episode_fin = True
-            return episode_fin
         
         # 各領域の動画サイズを計算
         resolution_fovea  = [resolution[0]*resblock_quality**depth_fovea,
@@ -84,41 +98,45 @@ def qoe_cal(mode, time_in_training, bitrate_legacy, resolution_legacy,
         quality_fovea = resolution_to_quality(bitrate_list, resolution_list, resolution_fovea)
         quality_blend = resolution_to_quality(bitrate_list, resolution_list, resolution_blend)
         quality_peri = resolution_to_quality(bitrate_list, resolution_list, resolution_peri)
-        print(f'quality_fovea: {quality_fovea}, quality_blend: {quality_blend}, quality_peri: {quality_peri}')
 
         ratio_fovea = area_percentage(resolution, size_fovea)
         ratio_blend = area_percentage(resolution, size_blend)
-        Q_vc = utility(quality_fovea)*ratio_fovea + (utility(quality_blend)*(ratio_blend-ratio_fovea)) + (utility(quality_peri)(1-ratio_blend))
+        quality = (utility(quality_fovea)*ratio_fovea) + (utility(quality_blend)*(ratio_blend-ratio_fovea)) + (utility(quality_peri)*(1-ratio_blend))
         
         # 時間ジッタの計算
-        if time_in_training == 0:
+        if steps_per_episode == 0:
             jitter_t = 0
         else:
-            jitter_t = abs(utility(now_rate) - utility(pre_rate))
+            jitter_t = abs(quality - quality_vc_legacy[steps_per_episode-1])
 
-        jitter_s = 
+        # 空間ジッタの計算
+        jitter_s = ((utility(quality_fovea) - quality)**2 + (utility(quality_blend) - quality)**2 + (utility(quality_peri) - quality)**2) / 3
         
+        print(f'quality_fovea: {quality_fovea}, quality_blend: {quality_blend}, quality_peri: {quality_peri}')
 
-    # 時間ジッタの計算
-    if time_in_training == 0:
-        jitter_t = 0
-    else:
-        jitter_t = abs(utility(now_rate) - utility(pre_rate))
+    print(f'quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}')
 
-    # 空間ジッタの計算
-    # S_s = gammma * 
+    reward = alpha * quality - beta * jitter_t - gamma * jitter_s
+    return quality, jitter_t, jitter_s, reward, episode_fin
 
-    reward = alpha * Q_vc - beta * jitter_t
-    #print(f'Q_vc: {Q_vc}, S_t: {S_t}、 reward: {reward}')
-    return Q_vc, jitter_t, reward, episode_fin
-
+# 各領域のサイズ（ピクセル数）
 def size_via_resolution(gaze_xy, resolution, size, depth, resblock_time):
-    x = gaze_xy[0]
-    y = gaze_xy[1]
-    video_height = resolution[0]
     video_width = resolution[1]
+    video_height = resolution[0]
+    x = int(gaze_xy[0] * video_width / 1080)
+    y = int(gaze_xy[1] * video_height / 1920)
     r = size
+    # 動画外に視線座標が出ないように矯正
+    if x < 0:
+        x = 0
+    elif y < 0:
+        y = 0
+    elif x > video_width:
+        x = video_width
+    elif y > video_height:
+        y = video_width
 
+    #print(f'x: {x}, y: {y}, r: {r}')
     if x - r < 0:
         if y - r < 0:
             S1 = x * math.sqrt(r**2 - x**2) / 2
@@ -175,10 +193,14 @@ def size_via_resolution(gaze_xy, resolution, size, depth, resblock_time):
 
     return area
 
+# 動画サイズ間の比率から解像度を予測して計算
 def resolution_to_quality(bitrate_list, resolution_list, resolution):
     rate_index = -1
     over_quality = 0
-    for i in len(resolution_list):
+    ratio = 0  # ratio を初期化しておく
+    quality = 0  # デフォルトの品質値を設定しておく
+    
+    for i in range(len(resolution_list)):
         if resolution[0] < resolution_list[i][0]:
             rate_index = i
             break
@@ -201,6 +223,7 @@ def resolution_to_quality(bitrate_list, resolution_list, resolution):
     print(f'ratio: {ratio}, quality: {quality}')
     return quality
 
+# 各領域が動画サイズ内の何％を占めるかを計算
 def area_percentage(resolution, size):
     ratio = size**2 * math.pi / (resolution[0] * resolution[1])
     return ratio
