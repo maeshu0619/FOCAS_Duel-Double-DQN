@@ -1,10 +1,17 @@
+
+import argparse
 from environment.environment import VideoStreamingEnv
 from model.model import DqnAgent
 import numpy as np
 
-# https://qiita.com/sugulu_Ogawa_ISID/items/bc7c70e6658f204f85f9を参照
-if __name__ == "__main__":
-    # 環境の初期化
+def main(mode):
+    if mode == 0 or mode == None:
+        print("Mode 0: Training the model with ABR.")
+    elif mode == 1:
+        print("Mode 1: Training the model with FOCAS.")
+    elif mode == 2:
+        print("Mode 2: Training the model with Adaptive-FOCAS.")
+
     total_timesteps = 5000
 
     # エージェントの初期化
@@ -14,13 +21,16 @@ if __name__ == "__main__":
     gamma = 0.99
 
     # トレーニング
-    num_episodes = 10
-    max_steps_per_episode = 10
+    num_episodes = 5
+    max_steps_per_episode = 5
     goal_reward = 2000
     reward_log = []
 
-    env = VideoStreamingEnv(num_episodes*max_steps_per_episode, video_length=100, segment_duration=4, video_fps=30)
-    agent = DqnAgent(env, learning_rate=learning_rate, buffer_size=buffer_size)
+    total_timesteps = num_episodes*max_steps_per_episode
+    latency_constraint = 25 * 10**(-3) # レイテンシ制約
+
+    env = VideoStreamingEnv(mode, total_timesteps, max_steps_per_episode, latency_constraint)
+    agent = DqnAgent(env, mode, learning_rate=learning_rate, buffer_size=buffer_size)
 
     for episode in range(num_episodes):
         state = env.reset()
@@ -57,4 +67,21 @@ if __name__ == "__main__":
             break
 
     # モデルの保存
-    agent.save("dqn_model.h5")
+    if mode == 0:
+        agent.save("dqn_0_ABR_model.h5")
+    elif mode == 1:
+        agent.save("dqn_1_FOCAS_model.h5")
+    elif mode == 2:
+        agent.save("dqn_2_A-FOCAS_model.h5")
+
+
+
+
+# https://qiita.com/sugulu_Ogawa_ISID/items/bc7c70e6658f204f85f9を参照
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train the model with specified mode.")
+    parser.add_argument("--mode", type=int, required=True, help="Specify the mode for training. (e.g., 0 or 1)")
+    args = parser.parse_args()
+
+    main(args.mode)
+    
