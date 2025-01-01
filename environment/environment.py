@@ -15,6 +15,7 @@ class VideoStreamingEnv(Env):
         self.total_timesteps = total_timesteps
         self.max_steps_per_episode = max_steps_per_episode
         self.latency_constraint = latency_constraint
+        
 
         self.bitrate_to_resolution = {
             200: (144, 256),   # 超低解像度
@@ -24,8 +25,8 @@ class VideoStreamingEnv(Env):
             8000: (2160, 3840)  # UHD解像度（4K）
         }
         # ResBlock1ピクセル当たり一層通過させるのに必要な計算時間と、それによって何倍解像度が向上するかの情報
-        self.resblock_time = 0.2 * 10**(-8)
-        self.resblock_quality = 1.2
+        self.resblock_time = 5.2389490086734666 * 10**(-5)
+        self.resblock_quality = 1.148698354997035
         self.resblock_info = (self.resblock_time, self.resblock_quality)
 
         self.bitrate_list, self.resolution_list = extract_bitrate_and_resolution(self.bitrate_to_resolution)
@@ -47,6 +48,7 @@ class VideoStreamingEnv(Env):
         self.size_legacy = [] # 選択された領域サイズの履歴
         self.depth_legacy = [] # 選択された深さの履歴
         self.bandwidth_legacy = [] # シミュレートした帯域幅の履歴
+        self.bitrate_legacy.append(self.bitrate_list[0])  # 初期ビットレートを設定
         
         self.q_values = []  # Q値の履歴を保持
         self.action_history = [] # 行動の履歴
@@ -66,16 +68,15 @@ class VideoStreamingEnv(Env):
         self.gaze_coordinates = gaze_data(directory_path, total_timesteps, video_center=(960, 540))
         print("Gaze Cordinate cathed")
 
-        if mode == 0:
+        if self.mode == 0:
             self.action_space = Discrete(5)
-        elif mode == 1:
+        elif self.mode == 1:
             self.action_space = Discrete(108)
-        elif mode == 2:
+        elif self.mode == 2:
             self.action_space = Discrete(540)
 
-
         # ログファイルのセットアップ
-        self.log_file, self.logger = file_setup()
+        self.log_file, self.logger = file_setup(self.mode)
 
         # プログレスバーのセットアップ
         self.total_timesteps = None
@@ -83,12 +84,20 @@ class VideoStreamingEnv(Env):
 
         self.time_in_video = 0 # 100ステップごとに初期化
         self.time_in_training = 0 # 初期化しない
+        self.steps_per_episode = 0 # エピソード終了時に初期化
 
-    def reset(self):        
+    def reset(self):    
+        self.time_in_video = 0
+        self.steps_per_episode = 0
+
+        # 帯域幅履歴とビットレート履歴をリセット
+        self.bandwidth_legacy = []  # 帯域幅の履歴を初期化
+        self.bitrate_legacy = [self.bitrate_list[0]]  # 初期ビットレートを設定
+
         # 状態をゼロパディング
         padded_bandwidth_legacy = self.bandwidth_legacy + [0] * (self.max_bandwidth_history - len(self.bandwidth_legacy))
         state = np.array(padded_bandwidth_legacy + [self.bitrate_legacy[0]], dtype=np.float32)
-
+        episode_fin = False
         done = False
             
         self.log_file.write(f"--- state reset ---\n")
@@ -96,73 +105,70 @@ class VideoStreamingEnv(Env):
 
     def step(self, action):
         # 帯域幅の変化をシミュレーション
-        bandwidth, r = rate_cal(self.time_in_video)
+        bandwidth, r = rate_cal(self.time_in_video) # 帯域幅とその時
         self.bandwidth_legacy.append(bandwidth)
         reward = 0
 
         if self.mode == 0:
-            self.last_bit_rate_index = action
-            self.bitrate_legacy.append(self.bitrate_list[self.last_bit_rate_index])
+            if self.steps_per_episode != 0:
+                self.last_bit_rate_index = action # 選択された動画品質
+                self.bitrate_legacy.append(self.bitrate_list[self.last_bit_rate_index])
         elif self.mode == 1:
-            size_fovea_index = (action // 5) % 2
-            size_blend_index = (action // (5 * 2)) % 2
-            depth_fovea_index = (action // (5 * 2 * 2)) % 3
-            depth_blend_index = (action // (5 * 2 * 2 * 3)) % 3
-            depth_peri_index = action // (5 * 2 * 2 * 3 * 3)
+            pass
         elif self.mode == 2:
-            bitrate_index = action % 5
-            size_fovea_index = (action // 5) % 2
-            size_blend_index = (action // (5 * 2)) % 2
-            depth_fovea_index = (action // (5 * 2 * 2)) % 3
-            depth_blend_index = (action // (5 * 2 * 2 * 3)) % 3
-            depth_peri_index = action // (5 * 2 * 2 * 3 * 3)
+            bitrate_index = action % 5 # 選択された動画品質
+            size_fovea_index = (action // 5) % 2 # フォビア領域サイズ
+            size_blend_index = (action // (5 * 2)) % 2 # ブレンド領域サイズ
+            depth_fovea_index = (action // (5 * 2 * 2)) % 3 # フォビア領域の深さ
+            depth_blend_index = (action // (5 * 2 * 2 * 3)) % 3 # ブレンド領域の深さ
+            depth_peri_index = action // (5 * 2 * 2 * 3 * 3) # 周辺領域の深さ
             print(f'{size_fovea_index}, {size_blend_index}, {depth_fovea_index}, {depth_blend_index}, {depth_peri_index}')
             
             self.bitrate_legacy.append(self.bitrate_list[bitrate_index])
             self.resolution_legacy.append(self.resolution_list[bitrate_index])
-            self.size_legacy.append[int(self.size_fovea[size_fovea_index] * self.resolution_list[bitrate_index][0]), 
-                         int(self.size_blend[size_blend_index] * self.resolution_list[bitrate_index][0])]
-            self.depth_legacy.append[self.depth_fovea[depth_fovea_index], 
+            self.size_legacy.append([int(self.size_fovea[size_fovea_index] * self.resolution_list[bitrate_index][0]), 
+                         int(self.size_blend[size_blend_index] * self.resolution_list[bitrate_index][0])])
+            self.depth_legacy.append([self.depth_fovea[depth_fovea_index], 
                           self.depth_blend[depth_blend_index], 
-                          self.depth_peri[depth_peri_index]]
-
-                       
-        self.bitrate_legacy.append(self.bitrate_list[self.last_bit_rate_index])
+                          self.depth_peri[depth_peri_index]])
 
         # QoE計算
-        quality, jitter_t, jitter_s, reward = qoe_cal(self.mode, self.time_in_video, self.bitrate_legacy, self.resolution_legacy, 
-                                    self.bitrate_list, self.resolution_list,
-                                    self.bandwidth_legacy, self.resblock_info, self.gaze_coordinates, 
-                                    self.size_legacy, self.depth_legacy, self.latency_constraint)
+        quality, jitter_t, jitter_s, reward , episode_fin= qoe_cal(self.mode, self.steps_per_episode, self.bitrate_legacy, self.resolution_legacy, 
+                                                                self.bitrate_list, self.resolution_list, self.quality_vc_legacy, 
+                                                                self.bandwidth_legacy, self.resblock_info, self.gaze_coordinates, 
+                                                                self.size_legacy, self.depth_legacy, self.latency_constraint)
         
-        self.action_history.append(action)
-        self.reward_history.append(reward)
-
+        # 報酬の内訳の保存
         self.quality_vc_legacy.append(quality)
         self.jitter_t_legacy.append(jitter_t)
         self.jitter_s_legacy.append(jitter_s)
+
+        # 報酬と行動の保存
+        self.action_history.append(action)
+        self.reward_history.append(reward)
 
         # 次のターゲットQ値を計算して保存
         target_q_value = reward + self.compute_discounted_future_reward()
         self.q_values.append(target_q_value)
 
         # ログに記録
-        self.log_file.write(f"frame:{self.time_in_video}, bandwidth:{bandwidth:.2f}, distance: {r}, streamed rate:{self.bitrate_legacy[self.time_in_video]}\n")
+        self.log_file.write(f"frame:{self.time_in_video}, bandwidth:{bandwidth:.2f}, distance: {r}, streamed rate:{self.bitrate_legacy[self.steps_per_episode]}\n")
         self.log_file.write(
             f"Step {self.time_in_training}: Action={action}, Reward={reward:.2f}, Target Q={target_q_value:.2f}\n"
         )
         
         # TensorBoard用のカスタム記録
         self.logger.record("Reward/QoE", reward)
-        self.logger.record("Selected Bitrate", self.bitrate_legacy[self.time_in_video])
+        self.logger.record("Selected Bitrate", self.bitrate_legacy[self.steps_per_episode])
         self.logger.record("Bandwidth", bandwidth)
         self.logger.dump(self.time_in_training)
 
         # 状態の更新
+        self.steps_per_episode += 1
         self.time_in_training += 1
         self.time_in_video += 1
         
-        done = (self.time_in_video >= self.max_steps_per_episode)  # ビデオ長に達したら終了
+        done = (self.steps_per_episode >= self.max_steps_per_episode)  # ビデオ長に達したら終了
         print(f'environment time_in_training: {self.time_in_training}')
 
         # 状態をゼロパディング
