@@ -71,11 +71,33 @@ class Memory:
 
 # Actorの実装
 class Actor:
-    def get_action(self, state, episode, mainQN):
-        epsilon = max(0.1, 1.0 - episode * 0.01)  # 初期値1.0で減少を緩やかに
-        if np.random.rand() < epsilon:
-            action = np.random.choice([0, 1, 2])  # 行動をランダム選択
+    def __init__(self, mode):
+        """
+        mode: 動作モード
+              0 -> 行動範囲: 5
+              1 -> 行動範囲: 108
+              2 -> 行動範囲: 540
+        """
+        self.mode = mode
+        if mode == 0:
+            self.action_space = 5
+        elif mode == 1:
+            self.action_space = 108
+        elif mode == 2:
+            self.action_space = 540
         else:
+            raise ValueError("Invalid mode. Mode must be 0, 1, or 2.")
+
+    def get_action(self, state, episode, mainQN):
+        """
+        状態に基づいて行動を選択する
+        """
+        epsilon = max(0.1, 1.0 - episode * 0.01)  # εを減少させる
+        if np.random.rand() < epsilon:
+            # ランダムに行動を選択
+            action = np.random.choice(self.action_space)
+        else:
+            # Q値に基づいて行動を選択
             retTargetQs = mainQN.model.predict(state[np.newaxis])[0]
             action = np.argmax(retTargetQs)
         return action
@@ -91,8 +113,9 @@ class DqnAgent:
         buffer_size (int, optional): The size of the replay buffer used by the DQN model. Defaults to 1000000.
     """
 
-    def __init__(self, env, learning_rate: float = 0.0001, buffer_size: int = 1000000):
+    def __init__(self, env, mode, learning_rate: float = 0.0001, buffer_size: int = 1000000):
         self.env = env
+        self.mode = mode
         self.state_size = env.observation_space.shape[0]
         self.action_size = env.action_space.n
 
@@ -109,7 +132,7 @@ class DqnAgent:
             hidden_size=128
         )
         self.memory = Memory(max_size=buffer_size)
-        self.actor = Actor()
+        self.actor = Actor(self.mode)
 
     def train(self, total_timesteps: int = 50000, batch_size: int = 64, gamma: float = 0.99):
         """
