@@ -72,35 +72,42 @@ class Memory:
 # Actorの実装
 class Actor:
     def __init__(self, mode):
-        """
-        mode: 動作モード
-              0 -> 行動範囲: 5
-              1 -> 行動範囲: 108
-              2 -> 行動範囲: 540
-        """
         self.mode = mode
         if mode == 0:
-            self.action_space = 5
+            self.action_space = 4
         elif mode == 1:
-            self.action_space = 108
+            self.action_space = 5400#108
         elif mode == 2:
-            self.action_space = 540
+            self.action_space = 21600#540
         else:
             raise ValueError("Invalid mode. Mode must be 0, 1, or 2.")
+        self.invalid_actions = set()  # 無効な行動を記録する
 
     def get_action(self, state, episode, mainQN):
         """
-        状態に基づいて行動を選択する
+        状態に基づいて行動を選択する。
+        無効な行動（invalid_actions）は選択しない。
         """
-        epsilon = max(0.1, 1.0 - episode * 0.01)  # εを減少させる
+        epsilon = max(0.1, 1.0 - episode * 0.005)  # εを減少させる
+        valid_actions = list(set(range(self.action_space)) - self.invalid_actions)  # 有効な行動のみ
+        
         if np.random.rand() < epsilon:
             # ランダムに行動を選択
-            action = np.random.choice(self.action_space)
+            action = np.random.choice(valid_actions)
         else:
             # Q値に基づいて行動を選択
             retTargetQs = mainQN.model.predict(state[np.newaxis])[0]
+            retTargetQs[list(self.invalid_actions)] = -np.inf  # 無効な行動のQ値を無限小に設定
             action = np.argmax(retTargetQs)
+        
         return action
+
+    def add_invalid_action(self, action):
+        """
+        無効な行動を追加。
+        """
+        self.invalid_actions.add(action)
+
 
 
 class DqnAgent:
