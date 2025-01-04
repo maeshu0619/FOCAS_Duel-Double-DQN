@@ -43,8 +43,8 @@ class VideoStreamingEnv(Env):
 
         if self.mode == 0 or 2:
             # 帯域幅シミュレート
-            simulator = BandwidthSimulator('./cooked_traces/')
-            self.bandwidth_list = simulator.simulate_total_timesteps(self.max_steps_per_episode)
+            self.simulator = BandwidthSimulator('./cooked_traces/')
+            self.bandwidth_list = self.simulator.simulate_total_timesteps(self.max_steps_per_episode)
 
         # 行動
         self.actor = Actor(mode)
@@ -90,8 +90,8 @@ class VideoStreamingEnv(Env):
         self.reward_history = [] # 報酬の履歴
         
         # 視線情報の取得
-        directory_path = "UD_UHD_EyeTrakcing_Videos/Gaze_Data/HD"
-        self.gaze_coordinates = gaze_data(directory_path, total_timesteps, video_center=(960, 540))
+        self.directory_path = "UD_UHD_EyeTrakcing_Videos/Gaze_Data/HD"
+        self.gaze_coordinates = gaze_data(self.directory_path, max_steps_per_episode, video_center=(960, 540))
         print("Gaze Cordinate cathed\n")
 
         if self.mode == 0:
@@ -107,7 +107,7 @@ class VideoStreamingEnv(Env):
             self.observation_space = Box(
                 low=0,
                 high=np.inf,
-                shape=(1,), # 選択された品質
+                shape=(3,), # 選択された品質、視線座標
                 dtype=np.float32
             )
         elif self.mode == 2:
@@ -115,7 +115,7 @@ class VideoStreamingEnv(Env):
             self.observation_space = Box(
                 low=0,
                 high=np.inf,
-                shape=(2,), # 現在の帯域幅，選択された品質
+                shape=(4,), # 現在の帯域幅，選択された品質，現在の視線座標
                 dtype=np.float32
             )
 
@@ -128,11 +128,17 @@ class VideoStreamingEnv(Env):
     def reset(self):
         self.steps_per_episode = 0
 
-        if self.mode == 0 or 2:
-            simulator = BandwidthSimulator('./cooked_traces/')
-            self.bandwidth_list = simulator.simulate_total_timesteps(self.max_steps_per_episode)
+        if self.mode == 0:
+            self.bandwidth_list = self.simulator.simulate_total_timesteps(self.max_steps_per_episode)
+            state = np.array([self.bandwidth_legacy[0], self.bitrate_legacy[0]], dtype=np.float32)
+        elif self.mode == 1:
+            self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))
+            state = np.array([self.bitrate_legacy[0], self.gaze_coordinates[0][0], self.gaze_coordinates[0][1]], dtype=np.float32)
+        elif self.mode == 2:
+            self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))
+            self.bandwidth_list = self.simulator.simulate_total_timesteps(self.max_steps_per_episode)
+            state = np.array([self.bandwidth_legacy[0], self.bitrate_legacy[0], self.gaze_coordinates[0][0], self.gaze_coordinates[0][1]], dtype=np.float32)
 
-        state = np.array([0, self.bitrate_legacy[0]], dtype=np.float32)  # 初期帯域幅は0
         episode_fin = False
         done = False
             
@@ -150,6 +156,9 @@ class VideoStreamingEnv(Env):
             self.last_bit_rate_index = action # 選択された動画品質
             self.bitrate_legacy.append(self.bitrate_list[self.last_bit_rate_index])
         elif self.mode == 1:
+            # 帯域幅の変化をシミュレーション
+            self.bandwidth_legacy.append(None)
+
             print(f'action: {action}')
             # 行動の数値を各情報に割り当てる
             size_fovea_index = self.action_comb[action][0]
@@ -162,8 +171,8 @@ class VideoStreamingEnv(Env):
             
             self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
             self.resolution_legacy.append(self.resolution_list[self.focas_bitrate_index])
-            self.size_legacy.append([int(self.size_list[size_fovea_index] * self.resolution_list[bitrate_index][0]), 
-                         int(self.size_list[size_blend_index] * self.resolution_list[bitrate_index][0])])
+            self.size_legacy.append([int(self.size_list[size_fovea_index] * self.resolution_list[self.focas_bitrate_index][0]), 
+                         int(self.size_list[size_blend_index] * self.resolution_list[self.focas_bitrate_index][0])])
             self.depth_legacy.append([self.depth_fovea_list[depth_fovea_index], 
                           self.depth_blend_list[depth_blend_index], 
                           self.depth_peri_list[depth_peri_index]])
@@ -231,9 +240,14 @@ class VideoStreamingEnv(Env):
             self.log_file.write(
                 f"Step {self.time_in_training+1}({self.steps_per_episode+1}/{self.max_steps_per_episode}): Action={action}, Reward={reward:.2f}, Target Q=None\n"
             )         
-        self.log_file.write(
-            f"     bandwidth: {self.bandwidth_legacy[self.steps_per_episode]:.2f}, streamed rate: {self.bitrate_legacy[self.steps_per_episode]}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}\n"
-        )
+        if self.bandwidth_legacy[self.steps_per_episode] == None:
+            self.log_file.write(
+                f"     bandwidth: None, streamed rate: {self.bitrate_legacy[self.steps_per_episode]}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}\n"
+            )
+        else:
+            self.log_file.write(
+                f"     bandwidth: {self.bandwidth_legacy[self.steps_per_episode]:.2f}, streamed rate: {self.bitrate_legacy[self.steps_per_episode]}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}\n"
+            )
         
         # TensorBoard用のカスタム記録
         self.logger.record("Reward/QoE", reward)
@@ -249,6 +263,13 @@ class VideoStreamingEnv(Env):
 
         # 状態を更新
         state = np.array([self.bandwidth_legacy[-1], self.bitrate_legacy[-1]], dtype=np.float32)
+
+        if self.mode == 0:
+            state = np.array([self.bandwidth_legacy[-1], self.bitrate_legacy[-1]], dtype=np.float32)
+        elif self.mode == 1:
+            state = np.array([self.bandwidth_legacy[-1], self.gaze_coordinates[-1][0], self.gaze_coordinates[-1][1]], dtype=np.float32)
+        elif self.mode == 2:
+            state = np.array([self.bandwidth_legacy[-1], self.bitrate_legacy[-1], self.gaze_coordinates[-1][0], self.gaze_coordinates[-1][1]], dtype=np.float32)
 
         self.video_st = False
         print(f'current step is {self.time_in_training+1} / {self.total_timesteps+1}\n')
