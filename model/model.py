@@ -21,7 +21,7 @@ def huberloss(y_true, y_pred):
 
 # Qネットワークの定義
 class QNetwork:
-    def __init__(self, learning_rate=0.01, state_size=4, action_size=5, hidden_size=10):
+    def __init__(self, mode, learning_rate=0.01, state_size=4, action_size=5, hidden_size=10):
         self.model = Sequential()
         self.model.add(Dense(hidden_size, activation='relu', input_dim=state_size))
         self.model.add(Dense(hidden_size, activation='relu'))
@@ -127,12 +127,14 @@ class DqnAgent:
         self.action_size = env.action_space.n
 
         self.q_network = QNetwork(
+            mode=self.mode, 
             learning_rate=learning_rate,
             state_size=env.observation_space.shape[0],
             action_size=env.action_space.n,
             hidden_size=128
         )
         self.target_q_network = QNetwork(
+            mode=self.mode, 
             learning_rate=learning_rate,
             state_size=env.observation_space.shape[0],
             action_size=env.action_space.n,
