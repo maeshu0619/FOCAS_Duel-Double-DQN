@@ -76,9 +76,9 @@ class Actor:
         if mode == 0:
             self.action_space = 4
         elif mode == 1:
-            self.action_space = 5400#108
+            self.action_space = 1200
         elif mode == 2:
-            self.action_space = 21600#540
+            self.action_space = 4800
         else:
             raise ValueError("Invalid mode. Mode must be 0, 1, or 2.")
         self.invalid_actions = set()  # 無効な行動を記録する
