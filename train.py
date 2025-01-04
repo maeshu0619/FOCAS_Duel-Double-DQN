@@ -6,11 +6,27 @@ import numpy as np
 
 def main(mode):
     if mode == 0 or mode == None:
-        print("Mode 0: Training the model with ABR.")
+        print("\nMode 0: Training the model with ABR.")
+        num_episodes = 3
+        max_steps_per_episode = 60
+        goal_reward = 800
     elif mode == 1:
-        print("Mode 1: Training the model with FOCAS.")
+        print("\nMode 1: Training the model with FOCAS.")
+        num_episodes = 3
+        max_steps_per_episode = 60
+        goal_reward = 800
     elif mode == 2:
-        print("Mode 2: Training the model with Adaptive-FOCAS.")
+        print("\nMode 2: Training the model with Adaptive-FOCAS.")
+        num_episodes = 3
+        max_steps_per_episode = 60
+        goal_reward = 800
+    '''
+    elif mode == 3:
+        print("\nMode 3: Training the model with ABR-&-FOCAS.")
+        num_episodes = 3
+        max_steps_per_episode = 60
+        goal_reward = 800
+    '''
 
     total_timesteps = 5000
 
@@ -21,14 +37,13 @@ def main(mode):
     gamma = 0.99
 
     # トレーニング
-    num_episodes = 5
-    max_steps_per_episode = 5
-    goal_reward = 2000
     reward_log = []
 
-    total_timesteps = num_episodes*max_steps_per_episode
+    total_timesteps = num_episodes*max_steps_per_episode 
+    #print(f'aaa: {total_timesteps}')
     latency_constraint = 25 * 10**(-3) # レイテンシ制約
 
+    # https://qiita.com/sugulu_Ogawa_ISID/items/bc7c70e6658f204f85f9
     env = VideoStreamingEnv(mode, total_timesteps, max_steps_per_episode, latency_constraint)
     agent = DqnAgent(env, mode, learning_rate=learning_rate, buffer_size=buffer_size)
 
@@ -40,7 +55,7 @@ def main(mode):
         for step in range(max_steps_per_episode):
             action = agent.actor.get_action(state, episode, agent.q_network)
             next_state, reward, done, _ = env.step(action)
-            print(f'step; {step}')
+            print(f'step; {step+1} / episode: {episode+1}')
 
             agent.memory.add((state, action, reward, next_state, done))
             if agent.memory.len() > batch_size:
@@ -52,10 +67,11 @@ def main(mode):
 
             if done:
                 print('Loop is broken because of done')
-                break
+                continue
+            print("\n")
 
         reward_log.append(total_reward)
-        print(f"Episode {episode + 1}/{num_episodes} | Total Reward: {total_reward}\n")
+        print(f"Episode {episode + 1}/{num_episodes} | Total Reward: {total_reward}\n\n")
 
         # ターゲットネットワークの更新
         if episode % 10 == 0:
@@ -63,16 +79,16 @@ def main(mode):
 
         # 終了条件
         if np.mean(reward_log[-10:]) >= goal_reward:
-            print("Environment solved!")
-            break
+            print("--- Environment solved! ---")
+            continue
 
     # モデルの保存
     if mode == 0:
-        agent.save("dqn_0_ABR_model.h5")
+        agent.save("trainedmodel/dqn_0_ABR_model.h5")
     elif mode == 1:
-        agent.save("dqn_1_FOCAS_model.h5")
+        agent.save("trainedmodel/dqn_1_FOCAS_model.h5")
     elif mode == 2:
-        agent.save("dqn_2_A-FOCAS_model.h5")
+        agent.save("trainedmodel/dqn_2_A-FOCAS_model.h5")
 
 
 
