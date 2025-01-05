@@ -4,18 +4,17 @@ import datetime
 
 import matplotlib.pyplot as plt
 import os
+import numpy as np
+
+# 標準偏差からグラフの縦軸のおおよその範囲を決定する
+def calculate_axis_limits(data, margin=1.5):
+    mean = np.mean(data)
+    std = np.std(data)
+    y_min = mean - margin * std
+    y_max = mean + margin * std
+    return y_min, y_max
 
 def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwidth_legacy, bitrate_legacy):
-    """
-    4つのリスト（報酬履歴、Q値、帯域幅履歴、ビットレート履歴）を1枚のPNG画像に結合してプロットする関数。
-
-    Args:
-        reward_history (list): 報酬の履歴。
-        q_values (list): Q値の履歴。
-        bandwidth_legacy (list): 帯域幅の履歴。
-        bitrate_legacy (list): ビットレートの履歴。
-        output_file (str): 保存先ファイル名。
-    """
     # 出力フォルダの作成
     os.makedirs(cdf_file_path, exist_ok=True)
     
@@ -27,6 +26,7 @@ def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwi
 
     # 報酬履歴のプロット
     plt.subplot(2, 2, 1)
+    y_min, y_max = calculate_axis_limits(reward_history)
     plt.plot(reward_history, color="blue", label="Reward History")
     plt.title("Reward History")
     plt.xlabel("Step")
@@ -36,6 +36,7 @@ def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwi
 
     # Q値の履歴のプロット
     plt.subplot(2, 2, 2)
+    y_min, y_max = calculate_axis_limits(q_values)
     plt.plot(q_values, color="green", label="Q Values")
     plt.title("Q Values")
     plt.xlabel("Step")
@@ -45,6 +46,7 @@ def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwi
 
     # 帯域幅履歴のプロット
     plt.subplot(2, 2, 3)
+    y_min, y_max = calculate_axis_limits(bandwidth_legacy)
     plt.plot(bandwidth_legacy, color="red", label="Bandwidth Legacy")
     plt.title("Bandwidth Legacy")
     plt.xlabel("Step")
@@ -54,6 +56,7 @@ def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwi
 
     # ビットレート履歴のプロット
     plt.subplot(2, 2, 4)
+    y_min, y_max = calculate_axis_limits(bitrate_legacy)
     plt.plot(bitrate_legacy, color="purple", label="Bitrate Legacy")
     plt.title("Bitrate Legacy")
     plt.xlabel("Step")
@@ -68,16 +71,6 @@ def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwi
 
 
 def generate_cdf_plot(mode, cdf_file_path, reward_history, quality_legacy, jitter_t_legacy, jitter_s_legacy, rebuffer_legacy):
-    """
-    各リスト（品質、ジッタ、リバッファリング）におけるCDF分布の図を生成する関数。
-
-    Args:
-        quality_legacy (list): Quality (VC) の履歴。
-        jitter_t_legacy (list): Temporal Jitter の履歴。
-        jitter_s_legacy (list): Spatial Jitter の履歴。
-        rebuffer_legacy (list): Rebuffering の履歴。
-        output_folder (str): 保存先フォルダ。
-    """    
     # 出力フォルダの作成
     os.makedirs(cdf_file_path, exist_ok=True)
     
@@ -86,6 +79,7 @@ def generate_cdf_plot(mode, cdf_file_path, reward_history, quality_legacy, jitte
     plt.figure(figsize=(7, 5))
     sorted_reward = sorted(reward_history)
     cdf = [(i + 1) / len(sorted_reward) for i in range(len(sorted_reward))]
+    y_min, y_max = calculate_axis_limits(sorted_reward)
     plt.plot(sorted_reward, cdf, color="blue", label="CDF of QoE")
     plt.title("CDF of QoE", fontsize=14)
     plt.xlabel("Value", fontsize=12)
@@ -110,6 +104,7 @@ def generate_cdf_plot(mode, cdf_file_path, reward_history, quality_legacy, jitte
     for idx, (label, sorted_data) in enumerate(data.items(), start=1):
         cdf = [(i + 1) / len(sorted_data) for i in range(len(sorted_data))]
         plt.subplot(2, 2, idx)
+        y_min, y_max = calculate_axis_limits(sorted_data)
         plt.plot(sorted_data, cdf, color=colors[idx - 1], label=f"CDF of {label}")
         plt.title(f"CDF of {label}", fontsize=14)
         plt.xlabel("Value", fontsize=12)
