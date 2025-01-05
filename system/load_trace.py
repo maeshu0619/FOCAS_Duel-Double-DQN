@@ -22,6 +22,8 @@ class BandwidthSimulator:
                 for line in f:
                     parse = line.split()
                     cooked_bw.append(float(parse[1]) * 10**3)  # 帯域幅を取得し10^3倍
+                    if cooked_bw[-1] == 0.0 or cooked_bw[-1] < 0:
+                        cooked_bw.pop(1)
             all_cooked_bw.append(cooked_bw)
             all_file_names.append(cooked_file)
         return all_cooked_bw, all_file_names
