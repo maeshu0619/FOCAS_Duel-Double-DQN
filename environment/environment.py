@@ -12,8 +12,6 @@ from system.action_generate import focas_combination, a_focas_combination
 from system.load_trace import BandwidthSimulator
 from model.model import Actor
 
-log_cnt = 0
-
 class VideoStreamingEnv(Env):
     def __init__(self, mode, total_timesteps, max_steps_per_episode, latency_constraint):
         super(VideoStreamingEnv, self).__init__()
@@ -23,7 +21,6 @@ class VideoStreamingEnv(Env):
         self.latency_constraint = latency_constraint
         
         self.target_q_value = None
-        self.info = {}
 
         if mode == 0:
             mode_name = "0_ABR"
@@ -31,7 +28,7 @@ class VideoStreamingEnv(Env):
         elif mode == 1:
             mode_name = "1_FOCAS"
             self.action_comb = focas_combination() # 行動範囲の組み合わせ
-            self.focas_bitrate_index = 0
+            self.focas_bitrate_index = 1
             print(f'action length is {len(self.action_comb)}, focas video resolution index: {self.focas_bitrate_index}')
         elif mode == 2:
             mode_name = "2_A-FOCAS"
@@ -83,7 +80,9 @@ class VideoStreamingEnv(Env):
         self.size_legacy = [] # 選択された領域サイズの履歴
         self.depth_legacy = [] # 選択された深さの履歴
         self.bandwidth_legacy = [] # シミュレートした帯域幅の履歴
+
         self.bitrate_legacy.append(self.bitrate_list[0])  # 初期ビットレートを設定
+        #self.bitrate_legacy.append(0)  # 初期帯域幅を設定
         
         self.q_values = []  # Q値の履歴を保持
         self.action_history = [] # 行動の履歴
@@ -120,7 +119,7 @@ class VideoStreamingEnv(Env):
             )
 
         # ログファイルのセットアップ
-        self.log_file, self.logger = file_setup(self.mode)
+        self.log_file, self.debug_log, self.logger = file_setup(self.mode, self.current_time)
 
         self.time_in_training = 0 # 初期化しない
         self.steps_per_episode = 0 # エピソード終了時に初期化
@@ -129,45 +128,51 @@ class VideoStreamingEnv(Env):
         self.steps_per_episode = 0
 
         if self.mode == 0:
+            self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))
             self.bandwidth_list = self.simulator.simulate_total_timesteps(self.max_steps_per_episode)
-            state = np.array([self.bandwidth_legacy[0], self.bitrate_legacy[0]], dtype=np.float32)
+            state = np.array([self.bandwidth_list[0], self.bitrate_legacy[0]], dtype=np.float32)
         elif self.mode == 1:
             self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))
             state = np.array([self.bitrate_legacy[0], self.gaze_coordinates[0][0], self.gaze_coordinates[0][1]], dtype=np.float32)
         elif self.mode == 2:
             self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))
             self.bandwidth_list = self.simulator.simulate_total_timesteps(self.max_steps_per_episode)
-            state = np.array([self.bandwidth_legacy[0], self.bitrate_legacy[0], self.gaze_coordinates[0][0], self.gaze_coordinates[0][1]], dtype=np.float32)
+            state = np.array([self.bandwidth_list[0], self.bitrate_legacy[0], self.gaze_coordinates[0][0], self.gaze_coordinates[0][1]], dtype=np.float32)
 
         episode_fin = False
         done = False
             
         self.log_file.write(f"--- state reset ---\n")
+        self.debug_log.write(f"--- state reset ---\n")
         return state
 
     def step(self, action):
+        self.debug_log.write(f'current step is {self.time_in_training+1} / {self.total_timesteps+1}')
         reward = 0
 
         if self.mode == 0:
             # 帯域幅の変化をシミュレーション
             self.bandwidth_legacy.append(self.bandwidth_list[self.steps_per_episode])
+            self.resolution_legacy.append(self.resolution_list[action])
 
-            print(f'action: {action}')
+            self.debug_log.write(f'action: {action}\n')
             self.last_bit_rate_index = action # 選択された動画品質
             self.bitrate_legacy.append(self.bitrate_list[self.last_bit_rate_index])
+            self.debug_log.write(f'bitrate: {self.bitrate_list[self.last_bit_rate_index]}\n')
+            self.debug_log.write(f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n')
         elif self.mode == 1:
             # 帯域幅の変化をシミュレーション
             self.bandwidth_legacy.append(None)
 
-            print(f'action: {action}')
+            self.debug_log.write(f'action: {action}')
             # 行動の数値を各情報に割り当てる
             size_fovea_index = self.action_comb[action][0]
             size_blend_index = self.action_comb[action][1]
             depth_fovea_index = self.action_comb[action][2]
             depth_blend_index = self.action_comb[action][3]
             depth_peri_index = self.action_comb[action][4]
-            print(f'size_fovea_index: {size_fovea_index}, size_blend_index: {size_blend_index}, depth_fovea_index: {depth_fovea_index}, depth_blend_index: {depth_blend_index}, depth_peri_index: {depth_peri_index}')
-            print(f'gaze_y: {self.gaze_coordinates[self.time_in_training][0]}, gaze_x: {self.gaze_coordinates[self.time_in_training][1]}')
+            self.debug_log.write(f'size_fovea_index: {size_fovea_index}, size_blend_index: {size_blend_index}, depth_fovea_index: {depth_fovea_index}, depth_blend_index: {depth_blend_index}, depth_peri_index: {depth_peri_index}\n')
+            self.debug_log.write(f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n')
             
             self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
             self.resolution_legacy.append(self.resolution_list[self.focas_bitrate_index])
@@ -180,7 +185,7 @@ class VideoStreamingEnv(Env):
             # 帯域幅の変化をシミュレーション
             self.bandwidth_legacy.append(self.bandwidth_list[self.steps_per_episode])
 
-            print(f'action: {action}')
+            self.debug_log.write(f'action: {action}\n')
             # 行動の数値を各情報に割り当てる
             bitrate_index = self.action_comb[action][0]
             size_fovea_index = self.action_comb[action][1]
@@ -188,8 +193,9 @@ class VideoStreamingEnv(Env):
             depth_fovea_index = self.action_comb[action][3]
             depth_blend_index = self.action_comb[action][4]
             depth_peri_index = self.action_comb[action][5]
-            print(f'bitrate_index: {bitrate_index}, size_fovea_index: {size_fovea_index}, size_blend_index: {size_blend_index}, depth_fovea_index: {depth_fovea_index}, depth_blend_index: {depth_blend_index}, depth_peri_index: {depth_peri_index}')
-            print(f'gaze_y: {self.gaze_coordinates[self.time_in_training][0]}, gaze_x: {self.gaze_coordinates[self.time_in_training][1]}')
+
+            self.debug_log.write(f'bitrate_index: {bitrate_index}, size_fovea_index: {size_fovea_index}, size_blend_index: {size_blend_index}, depth_fovea_index: {depth_fovea_index}, depth_blend_index: {depth_blend_index}, depth_peri_index: {depth_peri_index}\n')
+            self.debug_log.write(f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n')
             
             self.bitrate_legacy.append(self.bitrate_list[bitrate_index])
             self.resolution_legacy.append(self.resolution_list[bitrate_index])
@@ -203,7 +209,7 @@ class VideoStreamingEnv(Env):
         quality, jitter_t, jitter_s, rebuffer, reward , episode_fin= qoe_cal(self.mode, self.steps_per_episode, self.time_in_training, self.bitrate_legacy, self.resolution_legacy, 
                                                                 self.bitrate_list, self.resolution_list, self.quality_vc_legacy, 
                                                                 self.bandwidth_legacy, self.resblock_info, self.gaze_coordinates, 
-                                                                self.size_legacy, self.depth_legacy, self.latency_constraint)
+                                                                self.size_legacy, self.depth_legacy, self.latency_constraint, self.debug_log)
         
         # 無効な行動を記録
         if episode_fin:
@@ -218,18 +224,8 @@ class VideoStreamingEnv(Env):
         # 報酬と行動の保存
         self.action_history.append(action)
         self.reward_history.append(reward)
-
-        if self.time_in_training >= 60:
-            if self.time_in_training % 5 == 0:
-                self.target_q_value = reward + self.compute_discounted_future_reward()
-                self.q_values.append(self.target_q_value)
-
-                # info辞書にQ値を追加
-                self.info = {
-                    "q_values": self.q_values[-1]  # 最新のQ値を追加
-                }
-
-        print(f'reward: {reward}, discounted future reward: {self.compute_discounted_future_reward()},target q value: {self.target_q_value}')
+        
+        self.debug_log.write(f'reward: {reward}, discounted future reward: {self.compute_discounted_future_reward()},target q value: {self.target_q_value}\n')
         
         # ログに記録
         if self.target_q_value is not None:
@@ -242,11 +238,11 @@ class VideoStreamingEnv(Env):
             )         
         if self.bandwidth_legacy[self.steps_per_episode] == None:
             self.log_file.write(
-                f"     bandwidth: None, streamed rate: {self.bitrate_legacy[self.steps_per_episode]}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}\n"
+                f"     bandwidth: None, streamed rate: {self.bitrate_legacy[self.steps_per_episode]}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}, rebuffer: {rebuffer}\n"
             )
         else:
             self.log_file.write(
-                f"     bandwidth: {self.bandwidth_legacy[self.steps_per_episode]:.2f}, streamed rate: {self.bitrate_legacy[self.steps_per_episode]}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}\n"
+                f"     bandwidth: {self.bandwidth_legacy[self.steps_per_episode]:.2f}, streamed rate: {self.bitrate_legacy[self.steps_per_episode]}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}, rebuffer: {rebuffer}\n"
             )
         
         # TensorBoard用のカスタム記録
@@ -272,14 +268,14 @@ class VideoStreamingEnv(Env):
             state = np.array([self.bandwidth_legacy[-1], self.bitrate_legacy[-1], self.gaze_coordinates[-1][0], self.gaze_coordinates[-1][1]], dtype=np.float32)
 
         self.video_st = False
-        print(f'current step is {self.time_in_training+1} / {self.total_timesteps+1}\n')
 
         if self.time_in_training == self.total_timesteps:
             generate_training_plot(self.mode, self.cdf_file_path, self.reward_history, self.q_values, self.bandwidth_legacy, self.bitrate_legacy,)
             generate_cdf_plot(self.mode, self.cdf_file_path, self.reward_history, self.quality_vc_legacy, self.jitter_t_legacy, self.jitter_s_legacy, self.rebuffer_legacy)
             self.log_file.write(f'CDF plot done')
 
-        return state, reward, done, self.info
+        self.debug_log.write(f"\n")
+        return state, reward, done
 
     def compute_discounted_future_reward(self, gamma=0.99):
         """
