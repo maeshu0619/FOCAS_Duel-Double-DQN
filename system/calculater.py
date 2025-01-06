@@ -27,16 +27,16 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
 
     segment_length = 1.0 # セグメントの長さ (秒)
     buffer_size = 0.5    # 現在のバッファサイズ (秒)、一般的な適応ビットレート（ABR）アルゴリズムで短いバッファサイズを持つことを想定しているため。
-    sigma = 4.3 * 2         # リバッファリングペナルティの重み。参考にしたリポジトリに基づく。
+    sigma = 4.3 * 4        # リバッファリングペナルティの重み。参考にしたリポジトリに基づく。
     rebuffer = 0 # リバッファリングペナルティ
 
     sigma_h, sigma_w = 64, 64 # ガウス分布による重み係数の計算における平均、分散。FOCASに基づく。
 
     if steps_per_episode > 0: # 初めのステップでなければ一つ前の解像度も取得
-        now_rate = bitrate_legacy[time_in_training]
-        pre_rate = bitrate_legacy[time_in_training-1]
+        now_rate = bitrate_legacy[steps_per_episode]
+        pre_rate = bitrate_legacy[steps_per_episode-1]
     else:
-        now_rate = bitrate_legacy[time_in_training]
+        now_rate = bitrate_legacy[steps_per_episode]
 
     episode_fin = False
 
@@ -47,6 +47,8 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
 
         # 重みづけされた各領域の品質を計算
         quality =  calculate_weights_peripheral(resolution, gaze_yx, 0, sigma_h, sigma_w, debug_log)*utility(now_rate)
+        debug_log.write(f'weighted quality: {calculate_weights_peripheral(resolution, gaze_yx, 0, sigma_h, sigma_w, debug_log)}\n')
+        debug_log.write(f'utility quality: {utility(now_rate)}\n')
         
         # リバッファリングペナルティ
         if now_bandwidth < now_rate:
@@ -99,15 +101,21 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
         quality_peri = resolution_to_quality(bitrate_list, resolution_list, resolution_peri)
 
         # 各領域の動画全体の何％を占めるか計算
-        #ratio_fovea = area_percentage(resolution, size_fovea)
-        #ratio_blend = area_percentage(resolution, size_blend)
+        ratio_fovea = area_percentage(resolution, size_fovea)
+        ratio_blend = area_percentage(resolution, size_blend)
+
+        quality_ave = quality_fovea*ratio_fovea + quality_blend*(ratio_blend - ratio_fovea) + quality_peri*(1-ratio_blend)
+        debug_log.write(f'quality average: {quality_ave}\n')
+        debug_log.write(f'ratio_fovea: {ratio_fovea}, ratio_blend: {ratio_blend}\n')
         
         # 重みづけされた各領域の品質を計算
-        quality_fovea = calculate_weights(resolution, gaze_yx, 0, size_fovea*resolution[0], sigma_h, sigma_w, debug_log)*utility(quality_fovea)
-        quality_blend = calculate_weights(resolution, gaze_yx, size_fovea*resolution[0], size_blend*resolution[0], sigma_h, sigma_w, debug_log)*utility(quality_blend)
-        quality_peri = calculate_weights_peripheral(resolution, gaze_yx, size_blend*resolution[0], sigma_h, sigma_w, debug_log)*utility(quality_peri)
+        quality_fovea_weighted = calculate_weights(resolution, gaze_yx, 0, size_fovea, sigma_h, sigma_w, debug_log)*utility(quality_fovea)
+        quality_blend_weighted = calculate_weights(resolution, gaze_yx, size_fovea, size_blend, sigma_h, sigma_w, debug_log)*utility(quality_blend)
+        quality_peri_weighted = calculate_weights_peripheral(resolution, gaze_yx, size_blend, sigma_h, sigma_w, debug_log)*utility(quality_peri)
 
-        quality =  quality_fovea + quality_blend + quality_peri
+        quality =  quality_fovea_weighted + quality_blend_weighted + quality_peri_weighted
+        debug_log.write(f'weighted quality: {quality_fovea_weighted}, {quality_blend_weighted}, {quality_peri_weighted}\n')
+        debug_log.write(f'utility quality: {utility(quality_fovea)}, {utility(quality_blend)}, {utility(quality_peri)}\n')
         
         # リバッファリングペナルティ
         rebuffer = 0
@@ -119,7 +127,7 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
             jitter_t = abs(quality - quality_vc_legacy[time_in_training-1])
 
         # 空間ジッタ
-        jitter_s = ((quality_fovea - quality)**2 + (quality_blend - quality)**2 + (quality_peri - quality)**2) / 3
+        jitter_s = (utility(quality_fovea) - utility(quality_ave))**2*ratio_fovea + (utility(quality_blend) - utility(quality_ave))**2*(ratio_blend-ratio_fovea) + (utility(quality_peri) - utility(quality_ave))**2*(1-ratio_blend)
         
         debug_log.write(f'quality_fovea: {quality_fovea}, quality_blend: {quality_blend}, quality_peri: {quality_peri}\n')
 
@@ -162,16 +170,22 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
         quality_peri = resolution_to_quality(bitrate_list, resolution_list, resolution_peri)
 
         # 各領域の動画全体の何％を占めるか計算
-        #ratio_fovea = area_percentage(resolution, size_fovea)
-        #ratio_blend = area_percentage(resolution, size_blend)
+        ratio_fovea = area_percentage(resolution, size_fovea)
+        ratio_blend = area_percentage(resolution, size_blend)
 
+        quality_ave = quality_fovea*ratio_fovea + quality_blend*(ratio_blend - ratio_fovea) + quality_peri*(1-ratio_blend)
+        debug_log.write(f'quality average: {quality_ave}\n')
+        debug_log.write(f'ratio_fovea: {ratio_fovea}, ratio_blend: {ratio_blend}\n')
+        
         # 重みづけされた各領域の品質を計算
-        quality_fovea = calculate_weights(resolution, gaze_yx, 0, size_fovea*resolution[0], quality, sigma_h, sigma_w, debug_log)*utility(quality_fovea)
-        quality_blend = calculate_weights(resolution, gaze_yx, size_fovea*resolution[0], size_blend*resolution[0], quality, sigma_h, sigma_w, debug_log)*utility(quality_blend)
-        quality_peri = calculate_weights_peripheral(resolution, gaze_yx, size_blend*resolution[0], quality, sigma_h, sigma_w, debug_log)*utility(quality_peri)
+        quality_fovea_weighted = calculate_weights(resolution, gaze_yx, 0, size_fovea, sigma_h, sigma_w, debug_log)*utility(quality_fovea)
+        quality_blend_weighted = calculate_weights(resolution, gaze_yx, size_fovea, size_blend, sigma_h, sigma_w, debug_log)*utility(quality_blend)
+        quality_peri_weighted = calculate_weights_peripheral(resolution, gaze_yx, size_blend, sigma_h, sigma_w, debug_log)*utility(quality_peri)
 
-        quality =  quality_fovea + quality_blend + quality_peri
-
+        quality =  quality_fovea_weighted + quality_blend_weighted + quality_peri_weighted
+        debug_log.write(f'weighted quality: {quality_fovea_weighted}, {quality_blend_weighted}, {quality_peri_weighted}\n')
+        debug_log.write(f'utility quality: {utility(quality_fovea)}, {utility(quality_blend)}, {utility(quality_peri)}\n')
+        
         # リバッファリングペナルティ
         if now_bandwidth < now_rate: 
             rebuffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length, buffer_size)
@@ -183,7 +197,7 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
             jitter_t = abs(quality - quality_vc_legacy[time_in_training-1])
 
         # 空間ジッタ
-        jitter_s = ((quality_fovea - quality)**2 + (quality_blend - quality)**2 + (quality_peri - quality)**2) / 3  
+        jitter_s = (utility(quality_fovea) - utility(quality_ave))**2*ratio_fovea + (utility(quality_blend) - utility(quality_ave))**2*(ratio_blend-ratio_fovea) + (utility(quality_peri) - utility(quality_ave))**2*(1-ratio_blend)
         
         debug_log.write(f'quality_fovea: {quality_fovea}, quality_blend: {quality_blend}, quality_peri: {quality_peri}\n')
 
@@ -327,3 +341,12 @@ def rate_cal(time_in_video):
     bandwidth = capacity / np.log2(1 + snr)
     
     return bandwidth, distances
+
+def generate_normal_distribution(size, mean=1000, std_dev=1500):
+    # 正規分布からデータを生成
+    data = np.random.normal(loc=mean, scale=std_dev, size=size)
+    
+    # 1000～6000に収まるようにクリップ
+    data = np.clip(data, 500, 10000)
+    
+    return data
