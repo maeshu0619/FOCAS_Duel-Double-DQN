@@ -4,7 +4,7 @@ from gym import Env
 from gym.spaces import Discrete, Box
 from tqdm import tqdm
 import datetime
-from system.calculater import qoe_cal, rate_cal
+from system.calculater import qoe_cal, rate_cal, generate_normal_distribution
 from system.setup import file_setup, extract_bitrate_and_resolution
 from system.gaze_prediction import gaze_data
 from system.graph_plot import generate_cdf_plot, generate_training_plot
@@ -42,6 +42,7 @@ class VideoStreamingEnv(Env):
             # 帯域幅シミュレート
             self.simulator = BandwidthSimulator('./cooked_traces/')
             self.bandwidth_list = self.simulator.simulate_total_timesteps(self.max_steps_per_episode)
+            self.bandwidth_list = generate_normal_distribution(size=self.max_steps_per_episode)
 
         # 行動
         self.actor = Actor(mode)
@@ -126,10 +127,13 @@ class VideoStreamingEnv(Env):
 
     def reset(self):
         self.steps_per_episode = 0
+        self.bitrate_legacy = []
+        self.bitrate_legacy.append(self.bitrate_list[0])  # 初期ビットレートを設定
 
         if self.mode == 0:
             self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))
             self.bandwidth_list = self.simulator.simulate_total_timesteps(self.max_steps_per_episode)
+            self.bandwidth_list = generate_normal_distribution(size=self.max_steps_per_episode)
             state = np.array([self.bandwidth_list[0], self.bitrate_legacy[0]], dtype=np.float32)
         elif self.mode == 1:
             self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))
@@ -137,6 +141,7 @@ class VideoStreamingEnv(Env):
         elif self.mode == 2:
             self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))
             self.bandwidth_list = self.simulator.simulate_total_timesteps(self.max_steps_per_episode)
+            self.bandwidth_list = generate_normal_distribution(size=self.max_steps_per_episode)
             state = np.array([self.bandwidth_list[0], self.bitrate_legacy[0], self.gaze_coordinates[0][0], self.gaze_coordinates[0][1]], dtype=np.float32)
 
         episode_fin = False
@@ -147,7 +152,7 @@ class VideoStreamingEnv(Env):
         return state
 
     def step(self, action):
-        self.debug_log.write(f'current step is {self.time_in_training+1} / {self.total_timesteps+1}')
+        self.debug_log.write(f'current step is {self.time_in_training+1} / {self.total_timesteps+1}\n')
         reward = 0
 
         if self.mode == 0:
@@ -157,14 +162,15 @@ class VideoStreamingEnv(Env):
 
             self.debug_log.write(f'action: {action}\n')
             self.last_bit_rate_index = action # 選択された動画品質
-            self.bitrate_legacy.append(self.bitrate_list[self.last_bit_rate_index])
+            if self.steps_per_episode != 0:
+                self.bitrate_legacy.append(self.bitrate_list[self.last_bit_rate_index])
             self.debug_log.write(f'bitrate: {self.bitrate_list[self.last_bit_rate_index]}\n')
             self.debug_log.write(f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n')
         elif self.mode == 1:
             # 帯域幅の変化をシミュレーション
             self.bandwidth_legacy.append(None)
 
-            self.debug_log.write(f'action: {action}')
+            self.debug_log.write(f'action: {action}\n')
             # 行動の数値を各情報に割り当てる
             size_fovea_index = self.action_comb[action][0]
             size_blend_index = self.action_comb[action][1]
@@ -174,7 +180,8 @@ class VideoStreamingEnv(Env):
             self.debug_log.write(f'size_fovea_index: {size_fovea_index}, size_blend_index: {size_blend_index}, depth_fovea_index: {depth_fovea_index}, depth_blend_index: {depth_blend_index}, depth_peri_index: {depth_peri_index}\n')
             self.debug_log.write(f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n')
             
-            self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
+            if self.steps_per_episode != 0:
+                self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
             self.resolution_legacy.append(self.resolution_list[self.focas_bitrate_index])
             self.size_legacy.append([int(self.size_list[size_fovea_index] * self.resolution_list[self.focas_bitrate_index][0]), 
                          int(self.size_list[size_blend_index] * self.resolution_list[self.focas_bitrate_index][0])])
@@ -197,7 +204,8 @@ class VideoStreamingEnv(Env):
             self.debug_log.write(f'bitrate_index: {bitrate_index}, size_fovea_index: {size_fovea_index}, size_blend_index: {size_blend_index}, depth_fovea_index: {depth_fovea_index}, depth_blend_index: {depth_blend_index}, depth_peri_index: {depth_peri_index}\n')
             self.debug_log.write(f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n')
             
-            self.bitrate_legacy.append(self.bitrate_list[bitrate_index])
+            if self.steps_per_episode != 0:
+                self.bitrate_legacy.append(self.bitrate_list[bitrate_index])
             self.resolution_legacy.append(self.resolution_list[bitrate_index])
             self.size_legacy.append([int(self.size_list[size_fovea_index] * self.resolution_list[bitrate_index][0]), 
                          int(self.size_list[size_blend_index] * self.resolution_list[bitrate_index][0])])
