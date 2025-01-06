@@ -10,12 +10,12 @@ from tqdm import tqdm
 def main(mode):
     if mode == 0 or mode == None:
         print("\nMode 0: Training the model with ABR.")
-        num_episodes = 5
+        num_episodes = 300
         max_steps_per_episode = 60
         goal_reward = 800
     elif mode == 1:
         print("\nMode 1: Training the model with FOCAS.")
-        num_episodes = 5
+        num_episodes = 1
         max_steps_per_episode = 60
         goal_reward = 800
     elif mode == 2:
@@ -59,6 +59,7 @@ def main(mode):
 
             if agent.memory.len() >= batch_size and agent.memory.len() % 10 == 0:
                 agent.q_network.replay(agent.memory, batch_size, gamma, agent.target_q_network)
+                print(f'target q updated')
 
             state = next_state
             total_reward += reward
@@ -69,9 +70,11 @@ def main(mode):
 
         reward_log.append(total_reward)
 
+        '''
         # ターゲットネットワークの更新
         if episode % 10 == 0:
             agent.target_q_network.model.set_weights(agent.q_network.model.get_weights())
+        '''
 
         # 終了条件
         if np.mean(reward_log[-10:]) >= goal_reward:
