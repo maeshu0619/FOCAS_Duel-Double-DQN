@@ -1,18 +1,27 @@
 import matplotlib.pyplot as plt
 import os
-import datetime
-
-import matplotlib.pyplot as plt
-import os
 import numpy as np
 
 # 標準偏差からグラフの縦軸のおおよその範囲を決定する
-def calculate_axis_limits(data, margin=1.5):
-    mean = np.mean(data)
-    std = np.std(data)
-    y_min = mean - margin * std
-    y_max = mean + margin * std
-    return y_min, y_max
+def calculate_axis_limits(data):
+    if not isinstance(data, (list, np.ndarray)) or len(data) == 0:
+        print("Warning: Data is empty or invalid. Returning default axis limits.")
+        return 0, 1  # デフォルトの軸の範囲
+
+    if all(d is None for d in data):
+        print("Warning: Data contains only None values. Returning default axis limits.")
+        return 0, 1
+
+    # None を除外
+    valid_data = [d for d in data if d is not None]
+    if len(valid_data) == 0:
+        print("Warning: After filtering None, data is empty. Returning default axis limits.")
+        return 0, 1
+
+    mean = np.mean(valid_data)
+    std = np.std(valid_data)
+    return mean - 2 * std, mean + 2 * std
+
 
 def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwidth_legacy, bitrate_legacy):
     # 出力フォルダの作成
@@ -36,7 +45,6 @@ def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwi
 
     # Q値の履歴のプロット
     plt.subplot(2, 2, 2)
-    y_min, y_max = calculate_axis_limits(q_values)
     plt.plot(q_values, color="green", label="Q Values")
     plt.title("Q Values")
     plt.xlabel("Step")
@@ -56,7 +64,6 @@ def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwi
 
     # ビットレート履歴のプロット
     plt.subplot(2, 2, 4)
-    y_min, y_max = calculate_axis_limits(bitrate_legacy)
     plt.plot(bitrate_legacy, color="purple", label="Bitrate Legacy")
     plt.title("Bitrate Legacy")
     plt.xlabel("Step")
@@ -79,7 +86,6 @@ def generate_cdf_plot(mode, cdf_file_path, reward_history, quality_legacy, jitte
     plt.figure(figsize=(7, 5))
     sorted_reward = sorted(reward_history)
     cdf = [(i + 1) / len(sorted_reward) for i in range(len(sorted_reward))]
-    y_min, y_max = calculate_axis_limits(sorted_reward)
     plt.plot(sorted_reward, cdf, color="blue", label="CDF of QoE")
     plt.title("CDF of QoE", fontsize=14)
     plt.xlabel("Value", fontsize=12)
@@ -104,7 +110,6 @@ def generate_cdf_plot(mode, cdf_file_path, reward_history, quality_legacy, jitte
     for idx, (label, sorted_data) in enumerate(data.items(), start=1):
         cdf = [(i + 1) / len(sorted_data) for i in range(len(sorted_data))]
         plt.subplot(2, 2, idx)
-        y_min, y_max = calculate_axis_limits(sorted_data)
         plt.plot(sorted_data, cdf, color=colors[idx - 1], label=f"CDF of {label}")
         plt.title(f"CDF of {label}", fontsize=14)
         plt.xlabel("Value", fontsize=12)
