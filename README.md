@@ -1,50 +1,38 @@
-# Adaptive FOCAS DQN/Custom Environment
+# 通信品質と視覚最適化を両立した超解像による動画配信システム
 
 **Introduction**
 
-This repository provides a framework for creating custom environments using OpenAI Gym and applying Deep Q-Networks (DQN) to solve them. 
+2024年度の卒業研究のコードです。
+DQNによって学習を行います。
+
 
 **Installation**
 
-1. **Clone the repository:**
+1. **リポジトリのクローン方法:**
    ```bash
    git clone https://github.com/maeshu0619/Adaptive_FOCAS_DQN.git
    ```
    
-2. **Install dependencies:**
+2. **ライブラリのダウンロード:**
     ```bash
     cd your-repo-name
     pip install -r requirements.txt
     ```
    
-**Creating a Custom Environment**
+**トレーニング方法**
+ターミナル上でpython train.py --mode 0 --late 15 --net 0の様に入力してください
 
-To create a custom environment, you'll need to subclass the `gym.Env` class and implement the following methods:
+mode:
+    0: ABRのトレーニングを行います
+    1: FOCASのトレーニング行います
+    2: 提案手法（適応型FOCAS）のトレーニングを行います
 
-```python
-class YourCustomEnv(gym.Env):
-    def __init__(self):
-        # Initialize environment parameters
-        ...
+late:
+    15: レイテンシ制約15msとしてトレーニングを行います
+    20: レイテンシ制約20msとしてトレーニングを行います
+    25: レイテンシ制約25msとしてトレーニングを行います
 
-    def reset(self):
-        # Reset environment to initial state
-        ...
-        return observation
-
-    def step(self, action):
-        # Execute action and get next state, reward, done, info
-        ...
-        return next_observation, reward, done, info
-
-    def render(self):
-        # Render the environment
-        ...
-```
-
-## Contributing
-We welcome contributions to this repository. Feel free to submit pull requests for bug fixes, feature improvements, or new environments.
-
-
-## License
-This repository is licensed under the MIT License. See the LICENSE file for more details   [MIT License](LICENSE).
+net:
+    0: 悪質な通信環境（伝送レート）でトレーニングを行います
+    1: 並の通信環境（伝送レート）でトレーニングを行います
+    2: 良質な通信環境（伝送レート）でトレーニングを行います
