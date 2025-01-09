@@ -21,9 +21,12 @@ class BandwidthSimulator:
             with open(file_path, 'r') as f:
                 for line in f:
                     parse = line.split()
-                    cooked_bw.append(float(parse[1]) * 10**3)  # 帯域幅を取得し10^3倍
-                    if cooked_bw[-1] == 0.0 or cooked_bw[-1] < 0:
-                        cooked_bw.pop(1)
+                    try:
+                        bandwidth = float(parse[1]) * 10**3  # 帯域幅を取得し10^3倍
+                        if bandwidth > 1.0:  # 帯域幅が1以下の場合は無視
+                            cooked_bw.append(bandwidth)
+                    except (ValueError, IndexError):
+                        continue
             all_cooked_bw.append(cooked_bw)
             all_file_names.append(cooked_file)
         return all_cooked_bw, all_file_names
@@ -46,7 +49,9 @@ class BandwidthSimulator:
                 self.reset()
 
             # 現在の帯域幅を取得
-            accumulated_bandwidths.append(self.cooked_bw[self.time_idx])
+            current_bw = self.cooked_bw[self.time_idx]
+            if current_bw > 1.0:  # 帯域幅が1以下の場合は無視
+                accumulated_bandwidths.append(current_bw)
             self.time_idx += 1
 
         # ノイズを適用

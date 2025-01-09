@@ -23,51 +23,56 @@ def calculate_axis_limits(data):
     return mean - 2 * std, mean + 2 * std
 
 
-def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwidth_legacy, bitrate_legacy):
+def generate_training_plot(mode, graph_file_path, 
+                           latency_file, network_file, 
+                           reward_ave_history, error_late_per, error_buffer_per, bandwidth_ave_legacy, bitrate_legacy):
+    
     # 出力フォルダの作成
-    os.makedirs(cdf_file_path, exist_ok=True)
+    os.makedirs(graph_file_path, exist_ok=True)
     
     # 完全なファイルパスの設定
-    output_file = os.path.join(cdf_file_path, "training_plot.png")
+    output_file = os.path.join(graph_file_path, "training_plot.png")
     
     # グラフ設定
     plt.figure(figsize=(14, 10))
 
-    # 報酬履歴のプロット
+    # 平均報酬履歴のプロット
     plt.subplot(2, 2, 1)
-    y_min, y_max = calculate_axis_limits(reward_history)
-    plt.plot(reward_history, color="blue", label="Reward History")
-    plt.title("Reward History")
-    plt.xlabel("Step")
+    y_min, y_max = calculate_axis_limits(reward_ave_history)
+    plt.plot(reward_ave_history, color="blue", label="Reward History")
+    plt.title(f"Reward ({network_file})")
+    plt.xlabel("episode")
     plt.ylabel("Reward")
     plt.grid(True)
     plt.legend()
 
-    # Q値の履歴のプロット
+    # Error Rates のプロット (error_late_per, error_buffer_per)
     plt.subplot(2, 2, 2)
-    plt.plot(q_values, color="green", label="Q Values")
-    plt.title("Q Values")
-    plt.xlabel("Step")
-    plt.ylabel("Q Value")
+    y_min, y_max = calculate_axis_limits(error_late_per + error_buffer_per)
+    plt.plot(error_late_per, color="orange", label="Latency Constraint")
+    plt.plot(error_buffer_per, color="cyan", label="Rebuffering Penalty")
+    plt.title(f"Latency constraint violation and Rebuffering penalty probability ({network_file})")
+    plt.xlabel("episode")
+    plt.ylabel("Percentage (%)")
     plt.grid(True)
     plt.legend()
 
-    # 帯域幅履歴のプロット
+    # 平均帯域幅履歴のプロット
     plt.subplot(2, 2, 3)
-    y_min, y_max = calculate_axis_limits(bandwidth_legacy)
-    plt.plot(bandwidth_legacy, color="red", label="Bandwidth Legacy")
-    plt.title("Bandwidth Legacy")
-    plt.xlabel("Step")
-    plt.ylabel("Bandwidth (Mbps)")
+    y_min, y_max = calculate_axis_limits(bandwidth_ave_legacy)
+    plt.plot(bandwidth_ave_legacy, color="red", label="Bandwidth Average Legacy")
+    plt.title(f"Bandwidth ({network_file})")
+    plt.xlabel("episode")
+    plt.ylabel("Bandwidth (kbps)")
     plt.grid(True)
     plt.legend()
 
     # ビットレート履歴のプロット
     plt.subplot(2, 2, 4)
     plt.plot(bitrate_legacy, color="purple", label="Bitrate Legacy")
-    plt.title("Bitrate Legacy")
-    plt.xlabel("Step")
-    plt.ylabel("Bitrate (Mbps)")
+    plt.title(f"Selected Bitrate ({network_file})")
+    plt.xlabel("episode")
+    plt.ylabel("Bitrate (kbps)")
     plt.grid(True)
     plt.legend()
 
@@ -77,17 +82,19 @@ def generate_training_plot(mode, cdf_file_path, reward_history, q_values, bandwi
     plt.close()
 
 
-def generate_cdf_plot(mode, cdf_file_path, reward_history, quality_legacy, jitter_t_legacy, jitter_s_legacy, rebuffer_legacy):
+def generate_cdf_plot(mode, graph_file_path, 
+                      latency_file, network_file, 
+                      reward_history, quality_legacy, jitter_t_legacy, jitter_s_legacy, rebuffer_legacy):
     # 出力フォルダの作成
-    os.makedirs(cdf_file_path, exist_ok=True)
+    os.makedirs(graph_file_path, exist_ok=True)
     
     # (1) QoEの画像を生成
-    output_qoe_file = os.path.join(cdf_file_path, "qoe_cdf_plot.png")
+    output_qoe_file = os.path.join(graph_file_path, "qoe_cdf_plot.png")
     plt.figure(figsize=(7, 5))
     sorted_reward = sorted(reward_history)
     cdf = [(i + 1) / len(sorted_reward) for i in range(len(sorted_reward))]
     plt.plot(sorted_reward, cdf, color="blue", label="CDF of QoE")
-    plt.title("CDF of QoE", fontsize=14)
+    plt.title(f"CDF of QoE ({network_file})", fontsize=14)
     plt.xlabel("Value", fontsize=12)
     plt.ylabel("CDF", fontsize=12)
     plt.grid(True)
@@ -97,7 +104,7 @@ def generate_cdf_plot(mode, cdf_file_path, reward_history, quality_legacy, jitte
     plt.close()
 
     # (2) 他4つのグラフを1枚にまとめた画像を生成
-    output_combined_file = os.path.join(cdf_file_path, "qoe_info_cdf_plot.png")
+    output_combined_file = os.path.join(graph_file_path, "qoe_info_cdf_plot.png")
     data = {
         "Quality": sorted(quality_legacy),
         "Temporal Jitter": sorted(jitter_t_legacy),
@@ -111,7 +118,7 @@ def generate_cdf_plot(mode, cdf_file_path, reward_history, quality_legacy, jitte
         cdf = [(i + 1) / len(sorted_data) for i in range(len(sorted_data))]
         plt.subplot(2, 2, idx)
         plt.plot(sorted_data, cdf, color=colors[idx - 1], label=f"CDF of {label}")
-        plt.title(f"CDF of {label}", fontsize=14)
+        plt.title(f"CDF of {label} ({network_file})", fontsize=14)
         plt.xlabel("Value", fontsize=12)
         plt.ylabel("CDF", fontsize=12)
         plt.grid(True)
