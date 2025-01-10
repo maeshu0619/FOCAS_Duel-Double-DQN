@@ -15,7 +15,7 @@ from model.model import Actor
 
 class VideoStreamingEnv(Env):
     def __init__(self, mode, train_or_test, latency_file, network_file, 
-                 total_timesteps, max_steps_per_episode, latency_constraint, 
+                 total_timesteps, max_steps_per_episode, latency_constraint, fps, 
                  mu, sigma_ratio, base_band):
         super(VideoStreamingEnv, self).__init__()
         self.mode = mode
@@ -24,7 +24,7 @@ class VideoStreamingEnv(Env):
         self.network_file = network_file
         self.total_timesteps = total_timesteps
         self.max_steps_per_episode = max_steps_per_episode
-        self.latency_constraint = latency_constraint
+        self.latency_constraint = latency_constraint #* fps
         self.mu = mu
         self.sigma_ratio = sigma_ratio
         self.base_band = base_band
@@ -32,15 +32,15 @@ class VideoStreamingEnv(Env):
         self.target_q_value = None
 
         if mode == 0:
-            mode_name = "0_ABR"
+            mode_name = "ABR"
             print(f'action length is 4')
         elif mode == 1:
-            mode_name = "1_FOCAS"
+            mode_name = "FOCAS"
             self.action_comb = focas_combination() # 行動範囲の組み合わせ
             self.focas_bitrate_index = 1
             print(f'action length is {len(self.action_comb)}, focas video resolution index: {self.focas_bitrate_index}')
         elif mode == 2:
-            mode_name = "2_A-FOCAS"
+            mode_name = "A-FOCAS"
             self.action_comb = a_focas_combination() # 行動範囲の組み合わせ
             print(f'action length is {len(self.action_comb)}')
         if self.train_or_test == 0:
@@ -68,18 +68,19 @@ class VideoStreamingEnv(Env):
         self.actor = Actor(mode)
 
         self.bitrate_to_resolution = {
-            200: (135, 245),   # 超低解像度
-            1000: (270, 490),  # SD解像度
-            2500: (540, 980), # HD解像度
-            4300: (1080, 1920), # フルHD解像度
+            500: (270, 480),
+            1000: (540, 960),
+            1500: (810, 1440),
+            2000: (1080, 1920)
         }
         self.max_block = 10 # ResBlockの最大個数
-        self.max_scale = 9
+        self.max_scale = 9 # 各領域サイズ数
 
         # ResBlock1ピクセル当たり一層通過させるのに必要な計算時間と、それによって何倍解像度が向上するかの情報
-        self.resblock_time = 5.2389490086734666 * 10**(-8)
+        self.resblock_time = 2.525720165e-8 #2.525720165e-8 # 1.078679591e-9 # 4.487906e-8
+        self.other_time = 0 #0.04784066667 # 0.0167315
         self.resblock_quality = 1.148698354997035
-        self.resblock_info = (self.resblock_time, self.resblock_quality)
+        self.resblock_info = (self.resblock_time, self.other_time, self.resblock_quality)
 
         self.bitrate_list, self.resolution_list = extract_bitrate_and_resolution(self.bitrate_to_resolution)
         self.depth_fovea_list = [6,7,8,9,10] # フォビア深度リスト
@@ -100,12 +101,12 @@ class VideoStreamingEnv(Env):
         self.size_legacy = [] # 選択された領域サイズの履歴
         self.depth_legacy = [] # 選択された深さの履歴
         self.bandwidth_legacy = [] # シミュレートした帯域幅の履歴
-
+        '''
         if mode == 1:
             self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])  # 初期ビットレートを設定
         else:
             self.bitrate_legacy.append(self.bitrate_list[0])  # 初期ビットレートを設定
-        
+        '''
         self.q_values = []  # Q値の履歴を保持
         self.action_history = [] # 行動の履歴
         self.reward_history = [] # 報酬の履歴
@@ -150,7 +151,6 @@ class VideoStreamingEnv(Env):
 
     def reset(self):
         self.bitrate_legacy = []
-        self.bitrate_legacy.append(self.bitrate_list[0])  # 初期ビットレートを設定
         
         if self.steps_per_episode != 0:
             # レイテンシ制約超過記録
@@ -163,16 +163,19 @@ class VideoStreamingEnv(Env):
         self.steps_per_episode = 0
 
         if self.mode == 0:
+            self.bitrate_legacy.append(self.bitrate_list[0])  # 初期ビットレートを設定
             self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))        
             self.distance = np.random.uniform(self.min_dis, self.max_dis)
             self.bandwidth_list = simulate_transmission_rate(self.distance, self.max_steps_per_episode, self.mu, self.sigma_ratio, self.base_band)
             state = np.array([self.bandwidth_list[0], self.bitrate_legacy[0]], dtype=np.float32)
         elif self.mode == 1:
+            self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])  # 初期ビットレートを設定
             self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))  
             self.distance = np.random.uniform(self.min_dis, self.max_dis)
             self.bandwidth_list = simulate_transmission_rate(self.distance, self.max_steps_per_episode, self.mu, self.sigma_ratio, self.base_band)
             state = np.array([self.bitrate_legacy[0], self.gaze_coordinates[0][0], self.gaze_coordinates[0][1]], dtype=np.float32)
         elif self.mode == 2:
+            self.bitrate_legacy.append(self.bitrate_list[0])  # 初期ビットレートを設定
             self.gaze_coordinates = gaze_data(self.directory_path, self.max_steps_per_episode, video_center=(960, 540))        
             self.distance = np.random.uniform(self.min_dis, self.max_dis)
             self.bandwidth_list = simulate_transmission_rate(self.distance, self.max_steps_per_episode, self.mu, self.sigma_ratio, self.base_band)
@@ -218,6 +221,7 @@ class VideoStreamingEnv(Env):
             
             if self.steps_per_episode != 0:
                 self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
+                
             self.resolution_legacy.append(self.resolution_list[self.focas_bitrate_index])
             self.size_legacy.append([int(self.size_list[size_fovea_index] * self.resolution_list[self.focas_bitrate_index][0]), 
                          int(self.size_list[size_blend_index] * self.resolution_list[self.focas_bitrate_index][0])])
