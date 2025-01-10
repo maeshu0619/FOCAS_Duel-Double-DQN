@@ -11,12 +11,12 @@ def main(mode, latency, network):
 
     if mode == 0:
         print("\nMode 0: Training the model with ABR.")
-        num_episodes = 50
+        num_episodes = 300
         max_steps_per_episode = 60
         goal_reward = 800
     elif mode == 1:
         print("\nMode 1: Training the model with FOCAS.")
-        num_episodes = 150
+        num_episodes = 300
         max_steps_per_episode = 60
         goal_reward = 800
     elif mode == 2:
@@ -38,22 +38,23 @@ def main(mode, latency, network):
         
     # 通信環境
     if network == 0: # 悪質な通信環境
-        mu = 500
-        sigma_ratio = 0.1
-        base_band = 1e6
+        mu = 750
+        sigma_ratio = 0.5
+        base_band = 1.5e6
         network_file = "low transmission rate"
     elif network == 1: # 並みの通信環境
-        mu = 1500
-        sigma_ratio = 0.05
+        mu = 1300
+        sigma_ratio = 0.1
         base_band = 3e6
         network_file = "moderate transmission rate"
     elif network == 2: # 良質な通信環境
-        mu = 3000
-        sigma_ratio = 0.01
+        mu = 2000
+        sigma_ratio = 0.05
         base_band = 5e6
         network_file = "high transmission rate"
 
     q_update_gap = 10 # Q値を更新する頻度
+    fps = 30
 
     # エージェントの初期化
     learning_rate = 0.0001
@@ -70,7 +71,7 @@ def main(mode, latency, network):
 
     # https://qiita.com/sugulu_Ogawa_ISID/items/bc7c70e6658f204f85f9
     env = VideoStreamingEnv(mode, train_or_test, latency_file, network_file, 
-                            total_timesteps, max_steps_per_episode, latency_constraint, 
+                            total_timesteps, max_steps_per_episode, latency_constraint, fps, 
                             mu, sigma_ratio, base_band)
     agent = DqnAgent(env, mode, learning_rate=learning_rate, buffer_size=buffer_size)
 
@@ -96,7 +97,7 @@ def main(mode, latency, network):
             total_reward += reward
 
             if done:
-                print('Loop is broken because of done')
+                print("Episode finished early due to 'done' condition.")
                 break
 
         reward_log.append(total_reward)
@@ -113,13 +114,13 @@ def main(mode, latency, network):
     # モデルの保存
 
     if mode == 0:
-        agent.save(f"trainedmodel/{latency_file}/{network_file}/dqn_0_ABR_model.h5")
+        agent.save(f"trainedmodel/{latency_file}/{network_file}/dqn_ABR_model.h5")
         print('\nABR done')
     elif mode == 1:
-        agent.save(f"trainedmodel/{latency_file}/{network_file}/dqn_1_FOCAS_model.h5")
+        agent.save(f"trainedmodel/{latency_file}/{network_file}/dqn_FOCAS_model.h5")
         print('\nFOCAS done')
     elif mode == 2:
-        agent.save(f"trainedmodel/{latency_file}/{network_file}/dqn_2_A-FOCAS_model.h5")
+        agent.save(f"trainedmodel/{latency_file}/{network_file}/dqn_A-FOCAS_model.h5")
         print('\nAdaptive FOCAS done')
 
 
