@@ -78,8 +78,10 @@ class Memory:
         return len(self.buffer)
 
 # Actorの実装
+invalid_actions = set()  # 無効な行動を記録する
 class Actor:
     def __init__(self, mode):
+        global invalid_actions
         self.mode = mode
         if mode == 0:
             self.action_space = 4
@@ -89,15 +91,17 @@ class Actor:
             self.action_space = 4800
         else:
             raise ValueError("Invalid mode. Mode must be 0, 1, or 2.")
-        self.invalid_actions = set()  # 無効な行動を記録する
 
-    def get_action(self, state, episode, mainQN):
-        """
-        状態に基づいて行動を選択する。
-        無効な行動（invalid_actions）は選択しない。
-        """
-        epsilon = max(0.1, 1.0 - episode * 0.005)  # εを減少させる
-        valid_actions = list(set(range(self.action_space)) - self.invalid_actions)  # 有効な行動のみ
+    def add_invalid_action(self, action):
+        invalid_actions.add(action)
+
+    def get_action(self, state, episode, mainQN, test=False):
+        if test:
+            epsilon = 0.0  # テストモードではεをゼロに固定
+        else:
+            epsilon = max(0.1, 1.0 - episode * 0.005)  # εを減少させる
+        
+        valid_actions = list(set(range(self.action_space)) - invalid_actions)  # 有効な行動のみ
         
         if np.random.rand() < epsilon:
             # ランダムに行動を選択
@@ -105,16 +109,10 @@ class Actor:
         else:
             # Q値に基づいて行動を選択
             retTargetQs = mainQN.model.predict(state[np.newaxis])[0]
-            retTargetQs[list(self.invalid_actions)] = -np.inf  # 無効な行動のQ値を無限小に設定
+            retTargetQs[list(invalid_actions)] = -np.inf  # 無効な行動のQ値を無限小に設定
             action = np.argmax(retTargetQs)
         
         return action
-
-    def add_invalid_action(self, action):
-        """
-        無効な行動を追加。
-        """
-        self.invalid_actions.add(action)
 
 
 
@@ -142,10 +140,7 @@ class DqnAgent:
         self.memory = Memory(max_size=buffer_size)
         self.actor = Actor(self.mode)
 
-    def train(self, total_timesteps: int = 50000, batch_size: int = 64, gamma: float = 0.99):
-        """
-        報酬履歴を活用したQ値のターゲットを計算してトレーニング。
-        """
+    def train(self, total_timesteps: int = 50000, batch_size: int = 32, gamma: float = 0.99):
         obs = self.env.reset()
         for step in range(total_timesteps):
             action = self.actor.get_action(obs, step, self.q_network)
@@ -163,15 +158,6 @@ class DqnAgent:
                 obs = self.env.reset()
 
     def predict(self, observation: np.ndarray) -> int:
-        """
-        Predicts the best action for a given observation using the Q-network.
-
-        Args:
-            observation (np.ndarray): The observation from the environment.
-
-        Returns:
-            int: The predicted action to take.
-        """
         q_values = self.q_network.model.predict(observation[np.newaxis])[0]
         return np.argmax(q_values)
 
