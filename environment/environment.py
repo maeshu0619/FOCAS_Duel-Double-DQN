@@ -68,10 +68,11 @@ class VideoStreamingEnv(Env):
         self.actor = Actor(mode)
 
         self.bitrate_to_resolution = {
-            500: (270, 480),
-            1000: (540, 960),
-            1500: (810, 1440),
-            2000: (1080, 1920)
+            500: (540, 960),
+            1000: (750, 1333),
+            2000: (1080, 1920),
+            4000: (1500, 2666)
+            #8000: (2160, 3840)
         }
         self.max_block = 10 # ResBlockの最大個数
         self.max_scale = 9 # 各領域サイズ数
@@ -255,7 +256,7 @@ class VideoStreamingEnv(Env):
                           self.depth_peri_list[depth_peri_index]])
 
         # QoE計算
-        quality, jitter_t, jitter_s, rebuffer, reward , action_invalid_judge= qoe_cal(self.mode, self.steps_per_episode, self.time_in_training, self.bitrate_legacy, self.resolution_legacy, 
+        quality, jitter_t, jitter_s, rebuffer, reward, all_cal_time, action_invalid_judge= qoe_cal(self.mode, self.steps_per_episode, self.time_in_training, self.bitrate_legacy, self.resolution_legacy, 
                                                                 self.bitrate_list, self.resolution_list, self.quality_vc_legacy, 
                                                                 self.bandwidth_legacy, self.resblock_info, self.gaze_coordinates, 
                                                                 self.size_legacy, self.depth_legacy, self.latency_constraint, self.debug_log)
@@ -296,7 +297,7 @@ class VideoStreamingEnv(Env):
         
         done = (np.mean(self.reward_history) >= goal_reward)  # 目標報酬に達したら終了
 
-        # 状態を更新
+        # 状態を更新 # 正規化が必要？
         if self.mode == 0:
             state = np.array([self.bandwidth_legacy[-1], self.bitrate_legacy[-1]], dtype=np.float32)
         elif self.mode == 1:
@@ -323,7 +324,7 @@ class VideoStreamingEnv(Env):
                                    self.reward_history, self.quality_vc_legacy, self.jitter_t_legacy, self.jitter_s_legacy, self.rebuffer_legacy)
 
         self.debug_log.write(f"\n")
-        return state, reward, done
+        return state, reward, all_cal_time, done
     
     def __del__(self):
         if hasattr(self, 'logger') and self.logger:
