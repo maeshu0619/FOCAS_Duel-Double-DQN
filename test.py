@@ -66,6 +66,7 @@ def main(mode, latency, network):
     goal_reward = 800
 
     reward_legacy = []
+    late_ave = 0
 
     # テストの実行
     for episode in range(num_episodes):
@@ -81,7 +82,9 @@ def main(mode, latency, network):
 
             action = agent.actor.get_action(state, episode, agent.q_network, test=True)
 
-            next_state, reward, done = env.step(action, goal_reward)
+            next_state, reward, late, done = env.step(action, goal_reward)
+
+            late_ave += late
 
             reward_per_episode += reward # 各ステップの報酬の合計
             state = next_state # 状態の取得
@@ -104,6 +107,7 @@ def main(mode, latency, network):
     ave_reward /= num_episodes # 各エピソードの報酬の平均
 
     print(f"\nAverage Reward: {ave_reward:.2f}")
+    print(f"Latency Average: {late_ave/total_timesteps}")
 
 if __name__ == "__main__":
     start_time = time.time()  # 計測開始時刻
