@@ -7,11 +7,11 @@ import math
 # ログを記録するためのファイル名の準備
 def file_setup(mode, train_or_test, current_time, latency_file, network_file):
     if mode == 0:
-        mode_name = "0_ABR"
+        mode_name = "ABR"
     elif mode == 1:
-        mode_name = "1_FOCAS"
+        mode_name = "FOCAS"
     elif mode == 2:
-        mode_name = "2_A-FOCAS"
+        mode_name = "A-FOCAS"
     
     if train_or_test == 0:
         log_name = "log_train"

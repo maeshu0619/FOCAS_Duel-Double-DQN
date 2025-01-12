@@ -17,6 +17,8 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
     segment_length = 1.0 # セグメントの長さ (秒)
     rebuffer = 0 # リバッファリングペナルティ
 
+    all_cal_time = 0 # 計算量
+
     sigma_h, sigma_w = 64, 64 # ガウス分布による重み係数の計算における平均、分散。FOCASに基づく。
 
     if steps_per_episode > 0: # 初めのステップでなければ一つ前の解像度も取得
@@ -55,7 +57,8 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
     elif mode == 1: # FOCAS
         resolution = resolution_legacy[time_in_training] # 現在の動画サイズ（一定）
         resblock_time = resblock_info[0] # 1ピクセルがResBlock一層通過する時間
-        resblock_quality = resblock_info[1] # 1ピクセルがResBlock一層通過して向上する品質の倍率
+        other_time = resblock_info[1] # 畳み込み層のResblock以外の処理時間
+        resblock_quality = resblock_info[2] # 1ピクセルがResBlock一層通過して向上する品質の倍率
         gaze_yx  = gaze_coordinates[steps_per_episode] # 視線情報取得
         size_fovea = size_legacy[time_in_training][0] # フォビア領域サイズ
         size_blend = size_legacy[time_in_training][1] # ブレンド領域サイズ
@@ -70,10 +73,10 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
         peri_time = resolution[0] * resolution[1] * depth_peri * resblock_time # 周辺領域の計算時間
         all_cal_time = fovea_time + blend_time + peri_time # 全計算時間
 
-        if all_cal_time > latency_constraint: # レイテンシ制約超過をした場合、この行動をもう選択しないようにする
+        if all_cal_time + other_time > latency_constraint: # レイテンシ制約超過をした場合、この行動をもう選択しないようにする
             action_invalid_judge = True
-            debug_log.write(f'///// latency constraint exceedance /////\n')
-        #debug_log.write(f'calculation time is {all_cal_time}\n')
+            debug_log.write(f'latency constraint exceedance\n')
+        debug_log.write(f'calculation time is {all_cal_time}\n')
 
         # 各領域の動画品質サイズを予測計算
         resolution_fovea  = [resolution[0]*resblock_quality**depth_fovea,
@@ -124,8 +127,9 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
 
     elif mode == 2: # Adaptive FOCAS
         resolution = resolution_legacy[time_in_training] # 現在の動画品質サイズ
-        resblock_time = resblock_info[0] # 1ピクセルがResBlock一層通過するのにかかる時間
-        resblock_quality = resblock_info[1] # 1ピクセルがResBlock一層通過することによって向上する解像度の倍率
+        resblock_time = resblock_info[0] # 1ピクセルがResBlock一層通過する時間
+        other_time = resblock_info[1] # 畳み込み層のResblock以外の処理時間
+        resblock_quality = resblock_info[2] # 1ピクセルがResBlock一層通過して向上する品質の倍率
         gaze_yx  = gaze_coordinates[steps_per_episode] # 現在の視線座標
         size_fovea = size_legacy[time_in_training][0] # フォビア領域サイズ
         size_blend = size_legacy[time_in_training][1] # ブレンド領域サイズ
@@ -139,8 +143,8 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
         blend_time = blend_area * (depth_blend - depth_peri) * resblock_time # ブレンド領域の計算時間
         peri_time = resolution[0] * resolution[1] * depth_peri * resblock_time # 周辺領域の計算時間
         all_cal_time = fovea_time + blend_time + peri_time # 全計算時間
-
-        if all_cal_time > latency_constraint: # レイテンシ制約超過をした場合、この行動をもう選択しないようにする
+        
+        if all_cal_time + other_time > latency_constraint: # レイテンシ制約超過をした場合、この行動をもう選択しないようにする
             action_invalid_judge = True
             debug_log.write(f'latency constraint exceedance\n')
         debug_log.write(f'calculation time is {all_cal_time}\n')
@@ -198,7 +202,7 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
 
     debug_log.write(f'reward: {reward}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}, rebuffer: {rebuffer}\n')
 
-    return quality, jitter_t, jitter_s, rebuffer, reward, action_invalid_judge
+    return quality, jitter_t, jitter_s, rebuffer, reward, all_cal_time, action_invalid_judge
 
 # https://github.com/godka/ABR-DQN.git
 ### Stick: A Harmonious Fusion of Buffer-based and Learning-based Approach for Adaptive Streaming

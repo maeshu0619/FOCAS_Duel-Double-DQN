@@ -51,7 +51,7 @@ def generate_training_plot(mode, graph_file_path,
     y_min, y_max = calculate_axis_limits(error_late_per + error_buffer_per)
     plt.plot(error_late_per, color="orange", label="Latency Constraint")
     plt.plot(error_buffer_per, color="cyan", label="Rebuffering Penalty")
-    plt.title(f"Latency constraint violation and Rebuffering penalty probability ({network_file})")
+    plt.title(f"Latency constraint violation and Rebuffering penalty probability\n ({network_file})")
     plt.xlabel("episode")
     plt.ylabel("Percentage (%)")
     plt.grid(True)
