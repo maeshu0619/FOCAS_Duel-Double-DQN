@@ -10,7 +10,7 @@ DQNによって学習を行います。
 
 1. **リポジトリのクローン方法:**
    ```bash
-   git clone https://github.com/maeshu0619/Adaptive_FOCAS_DQN.git
+   git clone https://github.com/maeshu0619/graduation_experiment2024.git
    ```
    
 2. **ライブラリのダウンロード:**
