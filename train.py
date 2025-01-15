@@ -4,7 +4,6 @@ from environment.environment import VideoStreamingEnv
 from model.model import DqnAgent
 import numpy as np
 from system.time_cal import debug_time
-from tqdm import tqdm
 
 def main(mode, latency, network):
     train_or_test = 0
@@ -22,13 +21,19 @@ def main(mode, latency, network):
     elif mode == 2:
         print("\nMode 2: Training the model with Adaptive-FOCAS.")
         num_episodes = 500 #400 # 500
-        max_steps_per_episode = 40 #60 # 40
+        max_steps_per_episode = 60 #60 # 40
         goal_reward = 1000
 
     # レイテンシ制約
     if latency == 15: # 強い制約
         latency_constraint = 15 * 10**(-3)
         latency_file = "15ms"
+    elif latency == 16: # 並みの制約
+        latency_constraint = 20 * 10**(-3)
+        latency_file = "16ms"
+    elif latency == 17: # 並みの制約
+        latency_constraint = 20 * 10**(-3)
+        latency_file = "17ms"
     elif latency == 20: # 並みの制約
         latency_constraint = 20 * 10**(-3)
         latency_file = "20ms"
@@ -43,15 +48,20 @@ def main(mode, latency, network):
         base_band = 1.5e6
         network_file = "low transmission rate"
     elif network == 1: # 並みの通信環境
-        mu = 1300
+        mu = 1500
         sigma_ratio = 0.1
         base_band = 3e6
         network_file = "moderate transmission rate"
     elif network == 2: # 良質な通信環境
-        mu = 2000
+        mu = 3000
         sigma_ratio = 0.05
-        base_band = 10e6
+        base_band = 20e6
         network_file = "high transmission rate"
+    elif network == 3: # ランダムな通信環境
+        mu = 300
+        sigma_ratio = 0.01
+        base_band = 20e6
+        network_file = ""
 
     q_update_gap = 10 # Q値を更新する頻度
     fps = 30
@@ -105,7 +115,7 @@ def main(mode, latency, network):
                 break
 
         reward_log.append(total_reward)
-        print(f"Latency Average: {late_ave/total_timesteps}")
+        print(f"Latency Average: {late_ave/training_cnt}")
 
         # ターゲットネットワークの更新
         if episode % 10 == 0:
@@ -137,9 +147,9 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train the model with specified mode and options.")
     parser.add_argument("--mode", type=int, required=True, help="Specify the mode for training. (e.g., 0, 1, or 2)")
-    parser.add_argument("--late", type=int, choices=[15, 20, 25], default=25,
+    parser.add_argument("--late", type=int, choices=[15, 16, 17, 20, 25], default=25,
                         help="Set the latency constraint in milliseconds. Choices are 15, 20, 25. Default is 25.")
-    parser.add_argument("--net", type=int, choices=[0, 1, 2], default=1,
+    parser.add_argument("--net", type=int, choices=[0, 1, 2, 3], default=1,
                         help="Specify the network condition. Options are: 0 (poor), 1 (average), 2 (good). Default is 1.")
 
     args = parser.parse_args()
