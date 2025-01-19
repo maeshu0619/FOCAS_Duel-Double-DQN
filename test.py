@@ -42,10 +42,10 @@ def main(mode, latency, network):
         base_band = 20e6
         network_file = "high transmission rate"
     elif network == 3: # ランダムな通信環境
-        mu = 300
-        sigma_ratio = 0.01
-        base_band = 20e6
-        network_file = "random transmission rate"
+        mu = 200
+        sigma_ratio = 0.1
+        base_band = 10e6
+        network_file = ""
 
     if mode == 0:
         model_path = f"trainedmodel/{latency_file}/{network_file}/dqn_ABR_model.h5"
@@ -61,7 +61,7 @@ def main(mode, latency, network):
 
     # パラメータ設定
     fps = 30
-    num_episodes = 10  # テストは1エピソードのみ
+    num_episodes = 30  # テストは1エピソードのみ
     max_steps_per_episode = 60
     total_timesteps = num_episodes*max_steps_per_episode
 
@@ -74,7 +74,7 @@ def main(mode, latency, network):
     agent.load(model_path)
 
     training_cnt = 0
-    goal_reward = 800
+    goal_reward = 1000
 
     reward_legacy = []
     late_ave = 0
@@ -96,7 +96,7 @@ def main(mode, latency, network):
             next_state, reward, late, done = env.step(action, goal_reward)
 
             late_ave += late
-            print(late)
+            #print(late)
 
             reward_per_episode += reward # 各ステップの報酬の合計
             state = next_state # 状態の取得
@@ -119,7 +119,14 @@ def main(mode, latency, network):
     ave_reward /= num_episodes # 各エピソードの報酬の平均
 
     print(f"\nAverage Reward: {ave_reward:.2f}")
-    print(f"Latency Average: {late_ave/total_timesteps}")
+    print(f"Latency Average: {late_ave/training_cnt}")
+
+    if mode == 0:
+        print(f'\nABR training on {latency_file} constraint and {network_file} is done')
+    elif mode == 1:
+        print(f'\nFOCAS training on {latency_file} constraint and {network_file} is done')
+    elif mode == 2:
+        print(f'\nA-FOCAS training on {latency_file} constraint and {network_file} is done')
 
 if __name__ == "__main__":
     start_time = time.time()  # 計測開始時刻
