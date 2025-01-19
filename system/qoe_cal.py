@@ -7,19 +7,18 @@ from system.gaussian_weight import calculate_video_quality, calculate_weights, c
 #　QoEの計算関数
 def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolution_legacy, 
             bitrate_list, resolution_list, quality_vc_legacy, 
-            bandwidth_legacy, resblock_info, gaze_coordinates, 
-            size_legacy, depth_legacy, latency_constraint, debug_log):
+            bandwidth_legacy, resblock_info, gaze_coordinates, buffer, max_buffer, segment_length, 
+            size_legacy, depth_legacy, latency_constraint, debug_log, train_or_test):
     alpha = 10 # 動画品質の重み
     beta = 2 # 時間ジッタの重み
     gamma = 2 # 空間ジッタの重み
-    sigma = 4.3 * 15 # リバッファリングペナルティの重み。
+    sigma = 4.3 * 10 # リバッファリングペナルティの重み。
 
-    segment_length = 1.0 # セグメントの長さ (秒)
-    rebuffer = 0 # リバッファリングペナルティ
+    rebuffer = 0 # リバッファリングペナルティの初期化
 
     all_cal_time = 0 # 計算量
 
-    sigma_h, sigma_w = 64, 64 # ガウス分布による重み係数の計算における平均、分散。FOCASに基づく。
+    sigma_h, sigma_w = 64, 64 # ガウス分布による重み係数の計算における垂直方向と水平方向の標準偏差。FOCASに基づく。
 
     if steps_per_episode > 0: # 初めのステップでなければ一つ前の解像度も取得
         now_rate = bitrate_legacy[steps_per_episode]
@@ -27,7 +26,7 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
     else:
         now_rate = bitrate_legacy[steps_per_episode]
 
-    now_bandwidth = bandwidth_legacy[time_in_training] # 現在の帯域幅
+    now_bandwidth = bandwidth_legacy[time_in_training] # 現在の伝送レート
 
     action_invalid_judge = False
 
@@ -43,7 +42,18 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
         
         # リバッファリングペナルティ
         if now_bandwidth < now_rate:
-            rebuffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length)
+                rebuffer, buffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length, buffer, max_buffer)
+        '''
+        if now_bandwidth < now_rate:
+            if buffer > 0:
+                buffer -= 1
+            else:
+                buffer = 2
+                rebuffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length)
+        else:
+            if buffer < 2:
+                buffer += 1
+        '''
 
         # 時間ジッタの計算
         if steps_per_episode == 0:
@@ -112,8 +122,11 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
         
         # リバッファリングペナルティ
         if now_bandwidth < now_rate: 
-            rebuffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length)
-        
+            if train_or_test == 0:
+                rebuffer = 0 # FOCASは通信環境を考慮しないトレーニングを行う
+            else:
+                rebuffer, buffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length, buffer, max_buffer)
+
         # 時間ジッタ
         if steps_per_episode == 0:
             jitter_t = 0
@@ -183,8 +196,20 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
         debug_log.write(f'utility quality: {utility(quality_fovea)}, {utility(quality_blend)}, {utility(quality_peri)}\n')
         
         # リバッファリングペナルティ
-        if now_bandwidth < now_rate: 
-            rebuffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length)
+        if now_bandwidth < now_rate:
+            rebuffer, buffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length, buffer, max_buffer)
+
+        '''
+        if now_bandwidth < now_rate:
+            if buffer > 0:
+                buffer -= 1
+            else:
+                buffer = 2 
+                rebuffer = calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length)
+        else:
+            if buffer < 2:
+                buffer += 1
+        '''
         
         # 時間ジッタ
         if steps_per_episode == 0:
@@ -199,20 +224,35 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
 
     # 報酬の計算
     reward = alpha * quality - beta * jitter_t - gamma * jitter_s - sigma * rebuffer
-
+    '''
+    if action_invalid_judge == True: # 遅延制約超過
+        reward -= 20
+    '''
     debug_log.write(f'reward: {reward}, quality: {quality}, jitter_t: {jitter_t}, jitter_s: {jitter_s}, rebuffer: {rebuffer}\n')
 
-    return quality, jitter_t, jitter_s, rebuffer, reward, all_cal_time, action_invalid_judge
+    return quality, jitter_t, jitter_s, rebuffer, reward, all_cal_time, action_invalid_judge, buffer
 
 # https://github.com/godka/ABR-DQN.git
 ### Stick: A Harmonious Fusion of Buffer-based and Learning-based Approach for Adaptive Streaming
 # D-DASH: A Deep Q-Learning Framework for DASH Video Streaming
 # リバッファリングペナルティの計算
-def calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length):
-    # 帯域幅とビットレートをバイト単位で計算
-    segment_size = now_rate * segment_length  # ビットからバイトへ変換
-    download_time = segment_size / (now_bandwidth)  # ダウンロード時間 (秒)
-    return download_time
+def calculate_rebuffering_penalty(now_bandwidth, now_rate, segment_length, buffer, max_buffer):
+    segment_size = now_rate * segment_length  # セグメントのサイズ（ビット単位）
+    download_time = segment_size / now_bandwidth  # ダウンロード時間（秒）
+
+    # バッファを更新
+    if buffer >= download_time:
+        buffer -= download_time  # バッファで補完可能
+        rebuffer = 0
+    else:
+        rebuffer = download_time - buffer  # 不足分がリバッファリング時間
+        buffer = 0  # バッファは空になる
+
+    # バッファを上限までリチャージ
+    buffer = min(buffer + segment_length, max_buffer)
+
+    return rebuffer, buffer
+
 
 # 各領域のサイズ（ピクセル数）
 def size_via_resolution(gaze_yx, resolution, size, depth, resblock_time, debug_log):

@@ -25,7 +25,7 @@ def calculate_axis_limits(data):
 
 def generate_training_plot(mode, graph_file_path, 
                            latency_file, network_file, 
-                           reward_ave_history, error_late_per, error_buffer_per, bandwidth_ave_legacy, bitrate_legacy):
+                           reward_ave_history, error_late_per, error_buffer_per, bandwidth_ave_legacy, latency_legacy):
     
     # 出力フォルダの作成
     os.makedirs(graph_file_path, exist_ok=True)
@@ -40,7 +40,7 @@ def generate_training_plot(mode, graph_file_path,
     plt.subplot(2, 2, 1)
     y_min, y_max = calculate_axis_limits(reward_ave_history)
     plt.plot(reward_ave_history, color="blue", label="Reward History")
-    plt.title(f"Reward ({network_file})")
+    plt.title(f"Reward")
     plt.xlabel("episode")
     plt.ylabel("Reward")
     plt.grid(True)
@@ -51,7 +51,7 @@ def generate_training_plot(mode, graph_file_path,
     y_min, y_max = calculate_axis_limits(error_late_per + error_buffer_per)
     plt.plot(error_late_per, color="orange", label="Latency Constraint")
     plt.plot(error_buffer_per, color="cyan", label="Rebuffering Penalty")
-    plt.title(f"Latency constraint violation and Rebuffering penalty probability\n ({network_file})")
+    plt.title(f"Latency constraint violation and Rebuffering penalty probability\n")
     plt.xlabel("episode")
     plt.ylabel("Percentage (%)")
     plt.grid(True)
@@ -61,7 +61,7 @@ def generate_training_plot(mode, graph_file_path,
     plt.subplot(2, 2, 3)
     y_min, y_max = calculate_axis_limits(bandwidth_ave_legacy)
     plt.plot(bandwidth_ave_legacy, color="red", label="Bandwidth Average Legacy")
-    plt.title(f"Bandwidth ({network_file})")
+    plt.title(f"Bandwidth")
     plt.xlabel("episode")
     plt.ylabel("Bandwidth (kbps)")
     plt.grid(True)
@@ -69,10 +69,10 @@ def generate_training_plot(mode, graph_file_path,
 
     # ビットレート履歴のプロット
     plt.subplot(2, 2, 4)
-    plt.plot(bitrate_legacy, color="purple", label="Bitrate Legacy")
-    plt.title(f"Selected Bitrate ({network_file})")
+    plt.plot(latency_legacy, color="purple", label="Latency Legacy")
+    plt.title(f"Super Resolution Latency")
     plt.xlabel("episode")
-    plt.ylabel("Bitrate (kbps)")
+    plt.ylabel("Latency (s)")
     plt.grid(True)
     plt.legend()
 
@@ -94,7 +94,7 @@ def generate_cdf_plot(mode, graph_file_path,
     sorted_reward = sorted(reward_history)
     cdf = [(i + 1) / len(sorted_reward) for i in range(len(sorted_reward))]
     plt.plot(sorted_reward, cdf, color="blue", label="CDF of QoE")
-    plt.title(f"CDF of QoE ({network_file})", fontsize=14)
+    plt.title(f"CDF of QoE", fontsize=14)
     plt.xlabel("Value", fontsize=12)
     plt.ylabel("CDF", fontsize=12)
     plt.grid(True)
@@ -118,7 +118,7 @@ def generate_cdf_plot(mode, graph_file_path,
         cdf = [(i + 1) / len(sorted_data) for i in range(len(sorted_data))]
         plt.subplot(2, 2, idx)
         plt.plot(sorted_data, cdf, color=colors[idx - 1], label=f"CDF of {label}")
-        plt.title(f"CDF of {label} ({network_file})", fontsize=14)
+        plt.title(f"CDF of {label}", fontsize=14)
         plt.xlabel("Value", fontsize=12)
         plt.ylabel("CDF", fontsize=12)
         plt.grid(True)
