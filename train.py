@@ -11,16 +11,16 @@ def main(mode, latency, network):
     if mode == 0:
         print("\nMode 0: Training the model with ABR.")
         num_episodes = 300
-        max_steps_per_episode = 60
+        max_steps_per_episode = 80
         goal_reward = 1000
     elif mode == 1:
         print("\nMode 1: Training the model with FOCAS.")
-        num_episodes = 300
-        max_steps_per_episode = 60
+        num_episodes = 200 # 350
+        max_steps_per_episode = 60 # 40
         goal_reward = 1000
     elif mode == 2:
         print("\nMode 2: Training the model with Adaptive-FOCAS.")
-        num_episodes = 500 #400 # 500
+        num_episodes = 300 #400 # 500
         max_steps_per_episode = 60 #60 # 40
         goal_reward = 1000
 
@@ -40,6 +40,11 @@ def main(mode, latency, network):
     elif latency == 25: # 弱い制約
         latency_constraint = 25 * 10**(-3)
         latency_file = "25ms"
+    '''
+    if mode == 1 or mode == 2:
+        if latency == 20 or latency == 25:
+            num_episodes = 400
+    '''
         
     # 通信環境
     if network == 0: # 悪質な通信環境
@@ -58,16 +63,16 @@ def main(mode, latency, network):
         base_band = 20e6
         network_file = "high transmission rate"
     elif network == 3: # ランダムな通信環境
-        mu = 300
-        sigma_ratio = 0.01
-        base_band = 20e6
+        mu = 200
+        sigma_ratio = 0.1
+        base_band = 10e6
         network_file = ""
 
     q_update_gap = 10 # Q値を更新する頻度
     fps = 30
 
     # エージェントの初期化
-    learning_rate = 0.0001
+    learning_rate = 0.001
     buffer_size = 50000
     batch_size = 32
     gamma = 0.99
@@ -115,8 +120,9 @@ def main(mode, latency, network):
                 break
 
         reward_log.append(total_reward)
-        print(f"Latency Average: {late_ave/training_cnt}")
-
+        print(f"Latency Average: {late_ave/max_steps_per_episode} s")
+        late_ave = 0
+        
         # ターゲットネットワークの更新
         if episode % 10 == 0:
             agent.target_q_network.model.set_weights(agent.q_network.model.get_weights())
