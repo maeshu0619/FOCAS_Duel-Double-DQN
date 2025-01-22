@@ -13,8 +13,6 @@ tf.get_logger().setLevel('ERROR')
 from tensorflow.keras import backend as K
 from collections import deque
 from tensorflow.keras.layers import BatchNormalization, Dropout
-from tensorflow.keras.callbacks import LearningRateScheduler
-from system.learning_rate import lr_scheduler
 
 # 損失関数の定義
 # 損失関数にhuber関数を使用します
@@ -40,7 +38,6 @@ class QNetwork:
         self.model.add(Dense(action_size, activation='linear'))
         self.optimizer = Adam(learning_rate=learning_rate)
         self.model.compile(loss=huberloss, optimizer=self.optimizer)
-        self.lr_callback = LearningRateScheduler(lr_scheduler)
 
     def replay(self, memory, batch_size, gamma, targetQN):
         states, actions, rewards, next_states, dones = memory.sample(batch_size)
@@ -49,17 +46,19 @@ class QNetwork:
         mainQs = self.model.predict(states)
         nextMainQs = self.model.predict(next_states)
         targetQs = targetQN.model.predict(next_states)
-
-
         for i in range(batch_size):
+            max_next_action = np.argmax(nextMainQs[i])
+            mainQs[i][actions[i]] = rewards[i] + gamma * targetQs[i][max_next_action]
+            '''
             if dones[i]:
                 mainQs[i][actions[i]] = rewards[i]
             else:
                 max_next_action = np.argmax(nextMainQs[i])
                 mainQs[i][actions[i]] = rewards[i] + gamma * targetQs[i][max_next_action]
+            '''
 
-        # 学習率スケジューラーを適用して一括トレーニング
-        self.model.fit(states, mainQs, epochs=1, verbose=0, callbacks=[self.lr_callback])
+        # 一括トレーニング
+        self.model.fit(states, mainQs, epochs=1, verbose=0)
 
 
 
@@ -92,7 +91,7 @@ class Actor:
     def __init__(self, mode):
         global invalid_actions
         self.mode = mode
-        self.action_history = []  # 行動履歴を初期化
+        self.action_history = []
         if mode == 0:
             self.action_space = 4
         elif mode == 1:
@@ -105,28 +104,39 @@ class Actor:
     def add_invalid_action(self, action):
         invalid_actions.add(action)
 
-    def get_action(self, state, episode, mainQN, test=False):
-        if test:
-            epsilon = 0.0  # テストモードではεをゼロに固定
-        else:
+    def get_action(self, state, episode, mainQN, train_or_test):
+        if train_or_test == 0: # トレーニングモード
             epsilon = max(0.1, 1.0 - episode * 0.005)  # εを減少させる
+        else:
+            epsilon = 0.0  # テストモードではεをゼロに固定
         
         valid_actions = list(set(range(self.action_space)) - invalid_actions)  # 有効な行動のみ
-            
-        # 未選択の行動を優先
-        unexplored_actions = [a for a in valid_actions if a not in self.action_history]
-        if unexplored_actions:
-            action = np.random.choice(unexplored_actions)
-        elif np.random.rand() < epsilon:
-            # ランダムに行動を選択
-            action = np.random.choice(valid_actions)
-        else:
-            # Q値に基づいて行動を選択
-            retTargetQs = mainQN.model.predict(state[np.newaxis])[0]
-            retTargetQs[list(invalid_actions)] = -np.inf  # 無効な行動のQ値を無限小に設定
-            action = np.argmax(retTargetQs)
+        
+        if train_or_test == 0: # トレー二ングモード
+            # 未選択の行動を優先
+            unexplored_actions = [a for a in valid_actions if a not in self.action_history]
+            if unexplored_actions:
+                action = np.random.choice(unexplored_actions)
+            elif np.random.rand() < epsilon:
+                # ランダムに行動を選択
+                action = np.random.choice(valid_actions)
+            else:
+                # Q値に基づいて行動を選択
+                retTargetQs = mainQN.model.predict(state[np.newaxis])[0]
+                retTargetQs[list(invalid_actions)] = -np.inf  # 無効な行動のQ値を無限小に設定
+                action = np.argmax(retTargetQs)
 
-        self.action_history.append(action)  # 行動履歴を更新
+            self.action_history.append(action)  # 行動履歴を更新
+        else: # テストモード
+            if np.random.rand() < epsilon:
+                # ランダムに行動を選択
+                action = np.random.choice(valid_actions)
+            else:
+                # Q値に基づいて行動を選択
+                retTargetQs = mainQN.model.predict(state[np.newaxis])[0]
+                retTargetQs[list(invalid_actions)] = -np.inf  # 無効な行動のQ値を無限小に設定
+                action = np.argmax(retTargetQs)
+        
         return action
 
 
