@@ -8,19 +8,38 @@ from system.time_cal import debug_time
 def main(mode, latency, network):
     train_or_test = 0
 
+    learning_rate = 0.001
+
     if mode == 0:
         print("\nMode 0: Training the model with ABR.")
-        num_episodes = 300
-        max_steps_per_episode = 80
+        num_episodes = 250
+        max_steps_per_episode = 60
         goal_reward = 1000
     elif mode == 1:
         print("\nMode 1: Training the model with FOCAS.")
-        num_episodes = 200 # 350
+        '''
+        if latency < 17:
+            learning_rate = 0.01
+            num_episodes = 200 #400 # 500
+        else:
+            learning_rate = 0.001
+            num_episodes = 250
+        '''
+        if latency == 15:
+            num_episodes = 150 #400 # 500
+        elif latency <= 17:
+            num_episodes = 200 #400 # 500
+        else:
+            num_episodes = 250 #400 # 500
+        learning_rate = 0.005
         max_steps_per_episode = 60 # 40
         goal_reward = 1000
     elif mode == 2:
         print("\nMode 2: Training the model with Adaptive-FOCAS.")
-        num_episodes = 300 #400 # 500
+        if latency < 20:
+            num_episodes = 200 #400 # 500
+        else:
+            num_episodes = 300
         max_steps_per_episode = 60 #60 # 40
         goal_reward = 1000
 
@@ -72,7 +91,6 @@ def main(mode, latency, network):
     fps = 30
 
     # エージェントの初期化
-    learning_rate = 0.001
     buffer_size = 50000
     batch_size = 32
     gamma = 0.99
@@ -102,7 +120,7 @@ def main(mode, latency, network):
 
             training_cnt += 1
 
-            action = agent.actor.get_action(state, episode, agent.q_network, test=False)
+            action = agent.actor.get_action(state, episode, agent.q_network, train_or_test)
             next_state, reward, late, done = env.step(action, goal_reward)
 
             late_ave += late
