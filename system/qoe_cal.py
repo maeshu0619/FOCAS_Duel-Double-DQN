@@ -21,10 +21,14 @@ def qoe_cal(mode, steps_per_episode, time_in_training, bitrate_legacy, resolutio
     sigma_h, sigma_w = 64, 64 # ガウス分布による重み係数の計算における垂直方向と水平方向の標準偏差。FOCASに基づく。
 
     if steps_per_episode > 0: # 初めのステップでなければ一つ前の解像度も取得
-        now_rate = bitrate_legacy[steps_per_episode]
-        pre_rate = bitrate_legacy[steps_per_episode-1]
+        """
+        bitrate_legacy[steps_per_episod]は、現在の時間tにおいてクライアント要求した動画セグメントの解像度である。
+        そのため、現在の時間tにおいてサーバから送信される動画の解像度はbitrate_legacy[steps_per_episode-1]になる。
+        """
+        now_rate = bitrate_legacy[steps_per_episode-1]
+        pre_rate = bitrate_legacy[steps_per_episode-2]
     else:
-        now_rate = bitrate_legacy[steps_per_episode]
+        now_rate = bitrate_legacy[steps_per_episode-1]
 
     now_bandwidth = bandwidth_legacy[time_in_training] # 現在の伝送レート
 
