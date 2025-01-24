@@ -217,9 +217,12 @@ class VideoStreamingEnv(Env):
             self.resolution_legacy.append(self.resolution_list[action])
 
             self.debug_log.write(f'action: {action}\n')
-            self.last_bit_rate_index = action # 選択された動画品質
+            self.last_bit_rate_index = action # 選択された動画品質。このタイムステップにおいてクライアントが要求する解像度
+            """
             if self.steps_per_episode != 0:
-                self.bitrate_legacy.append(self.bitrate_list[self.last_bit_rate_index])
+                self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
+            """
+            self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
             self.debug_log.write(f'bitrate: {self.bitrate_list[self.last_bit_rate_index]}\n')
             self.debug_log.write(f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n')
         elif self.mode == 1:
@@ -237,10 +240,11 @@ class VideoStreamingEnv(Env):
                 f'size_fovea_index: {size_fovea_index}, size_blend_index: {size_blend_index}, depth_fovea_index: {depth_fovea_index}, depth_blend_index: {depth_blend_index}, depth_peri_index: {depth_peri_index}\n'
                 f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n'
             )
-            
+            """
             if self.steps_per_episode != 0:
                 self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
-                
+            """
+            self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
             self.resolution_legacy.append(self.resolution_list[self.focas_bitrate_index])
             self.size_legacy.append([int(self.size_list[size_fovea_index] * self.resolution_list[self.focas_bitrate_index][0]), 
                          int(self.size_list[size_blend_index] * self.resolution_list[self.focas_bitrate_index][0])])
@@ -253,7 +257,7 @@ class VideoStreamingEnv(Env):
 
             self.debug_log.write(f'action: {action}\n')
             # 行動の数値を各情報に割り当てる
-            bitrate_index = self.action_comb[action][0]
+            bitrate_index = self.action_comb[action][0] # 現在のタイムステップにおいてクライアントが要求する解像度
             size_fovea_index = self.action_comb[action][1]
             size_blend_index = self.action_comb[action][2]
             depth_fovea_index = self.action_comb[action][3]
@@ -264,8 +268,11 @@ class VideoStreamingEnv(Env):
                 f'gaze (y,x): ({self.gaze_coordinates[self.steps_per_episode][0]}, {self.gaze_coordinates[self.steps_per_episode][1]})\n'
             )
 
+            """
             if self.steps_per_episode != 0:
-                self.bitrate_legacy.append(self.bitrate_list[bitrate_index])
+                self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
+            """
+            self.bitrate_legacy.append(self.bitrate_list[self.focas_bitrate_index])
             self.resolution_legacy.append(self.resolution_list[bitrate_index])
             self.size_legacy.append([int(self.size_list[size_fovea_index] * self.resolution_list[bitrate_index][0]), 
                          int(self.size_list[size_blend_index] * self.resolution_list[bitrate_index][0])])
@@ -359,8 +366,8 @@ class VideoStreamingEnv(Env):
 
             error_buffer_ave = sum(self.error_buffer_per) / len(self.error_buffer_per)
 
-            print(f"Average Latency Constraint Percentage: {error_late_ave}")
-            print(f"Average Rebuffering Percentage: {error_buffer_ave}")
+            print(f"Average Latency Constraint Percentage: {error_late_ave:2f}")
+            print(f"Average Rebuffering Percentage: {error_buffer_ave:2f}")
 
 
         self.debug_log.write(f"\n")
