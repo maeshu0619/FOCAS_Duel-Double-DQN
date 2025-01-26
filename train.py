@@ -31,7 +31,9 @@ def main(mode, latency, network):
             num_episodes = 200 #400 # 500
         else:
             num_episodes = 250 #400 # 500
-        learning_rate = 0.005
+            
+        num_episodes = 750 #400 # 500
+        learning_rate = 0.0001
         max_steps_per_episode = 60 # 40
         goal_reward = 1000
     elif mode == 2:
