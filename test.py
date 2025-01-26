@@ -61,7 +61,7 @@ def main(mode, latency, network):
 
     # パラメータ設定
     fps = 30
-    num_episodes = 15  # テストは1エピソードのみ
+    num_episodes = 100  # テストは1エピソードのみ
     max_steps_per_episode = 60
     total_timesteps = num_episodes*max_steps_per_episode
 
